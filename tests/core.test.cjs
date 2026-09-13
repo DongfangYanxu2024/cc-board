@@ -1,0 +1,106 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const {
+  lineDecoder,
+  argumentsFor,
+  normalize,
+  providerEnv,
+} = require("../electron/core.cjs");
+test("stream framing survives fragmented UTF-8 and trailing lines", () => {
+  const events = [],
+    invalid = [];
+  const parser = lineDecoder(
+    (e) => events.push(e),
+    (l) => invalid.push(l),
+  );
+  const b = Buffer.from('{"text":"中文对话"}\nnot-json\n{"type":"result"}');
+  for (const byte of b) parser.write(Buffer.from([byte]));
+  parser.end();
+  assert.deepEqual(events, [{ text: "中文对话" }, { type: "result" }]);
+  assert.equal(invalid.length, 1);
+});
+test("permission mode is explicit on resume and shell text is not executable", () => {
+  const args = argumentsFor({
+    session: "session-1",
+    mode: "default",
+    model: "model & echo BAD",
+    mcp: {},
+  });
+  assert.ok(args.includes("--resume"));
+  assert.equal(args[args.indexOf("--model") + 1], "model & echo BAD");
+  assert.equal(args[args.indexOf("--permission-mode") + 1], "default");
+  assert.ok(args.includes("--permission-prompt-tool"));
+  assert.throws(() => argumentsFor({ mode: "invalid" }));
+  assert.ok(
+    !argumentsFor({ mode: "bypassPermissions", mcp: {} }).includes(
+      "--permission-prompt-tool",
+    ),
+  );
+});
+test("usage stays unknown when absent, real zero is preserved", () => {
+  assert.equal(normalize({ type: "result" }).cost, null);
+  assert.equal(normalize({ type: "result", total_cost_usd: 0 }).cost, 0);
+  assert.equal(normalize({ type: "result" }).usage, null);
+});
+test("provider key is attached to exactly the selected authentication field", () => {
+  const p = {
+    id: "p",
+    baseUrl: "https://example.test",
+    secret: "encrypted",
+    authType: "apiKey",
+    model: "test",
+  };
+  assert.deepEqual(
+    providerEnv(p, () => "decrypted"),
+    {
+      ANTHROPIC_BASE_URL: p.baseUrl,
+      ANTHROPIC_API_KEY: "decrypted",
+      ANTHROPIC_MODEL: "test",
+    },
+  );
+  assert.deepEqual(
+    providerEnv(null, () => {
+      throw Error();
+    }),
+    {},
+  );
+});
+test("provider credentials never need to be serialized into a CLI settings argument", () => {
+  const env = providerEnv(
+    {
+      id: "p",
+      baseUrl: "https://example.test",
+      secret: "encrypted",
+      authType: "token",
+      model: "test",
+    },
+    () => "very-secret-token",
+  );
+  const settingsEnv = Object.fromEntries(
+    Object.entries(env).filter(([key]) => !/AUTH_TOKEN|API_KEY/.test(key)),
+  );
+  assert.ok(!JSON.stringify(settingsEnv).includes("very-secret-token"));
+  assert.equal(settingsEnv.ANTHROPIC_BASE_URL, "https://example.test");
+});
+test("partial text and tool messages normalize without treating tool output as instructions", () => {
+  assert.deepEqual(
+    normalize({
+      type: "stream_event",
+      event: {
+        type: "content_block_delta",
+        delta: { type: "text_delta", text: "hello" },
+      },
+    }),
+    { kind: "delta", text: "hello" },
+  );
+  assert.equal(
+    normalize({
+      type: "user",
+      message: {
+        content: [{ type: "tool_result", content: "<script>bad</script>" }],
+      },
+    }).kind,
+    "tool_result",
+  );
+  assert.equal(normalize({ type: "unknown" }), null);
+});
