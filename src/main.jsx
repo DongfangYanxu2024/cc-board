@@ -48,6 +48,8 @@ function App() {
     [mode, setMode] = useState("default"),
     [model, setModel] = useState("");
   const [env, setEnv] = useState(null),
+    [updateInfo, setUpdateInfo] = useState(null),
+    [updateBusy, setUpdateBusy] = useState(false),
     [notice, setNotice] = useState(""),
     [approvals, setApprovals] = useState([]),
     [busy, setBusy] = useState(false),
@@ -216,6 +218,22 @@ function App() {
         `已导入 ${result.imported} 项配置${result.skipped ? `，${result.skipped} 项不兼容已跳过` : ""}。原文件未修改。`,
       );
   }
+  async function checkForUpdate() {
+    setUpdateBusy(true);
+    try {
+      const result = await call("checkUpdate");
+      if (result) {
+        setUpdateInfo(result);
+        setNotice(
+          result.hasUpdate
+            ? `发现新版本 v${result.latest}。`
+            : "当前已经是最新版本。",
+        );
+      }
+    } finally {
+      setUpdateBusy(false);
+    }
+  }
   const visibleSessions = useMemo(
     () =>
       state.sessions
@@ -252,7 +270,7 @@ function App() {
             cc<span>▰</span>
           </span>
           <b>cc-board</b>
-          <span className="alpha">预览版</span>
+          <span className="alpha">{env?.appVersion ? `v${env.appVersion}` : "预览版"}</span>
         </div>
         <button className="new-chat" onClick={newChat}>
           <Plus size={18} /> 新建对话 <span>＋</span>
@@ -972,6 +990,40 @@ function App() {
               <button className="secondary" onClick={importConfig}>
                 导入已有配置
               </button>
+            </section>
+            <section className="settings-card">
+              <div className="section-heading">
+                <RefreshCw size={22} />
+                <div>
+                  <h2>cc-board 更新</h2>
+                  <p>
+                    当前版本 v{env?.appVersion || "未知"}
+                    {updateInfo?.hasUpdate
+                      ? ` · 可更新到 v${updateInfo.latest}`
+                      : updateInfo
+                        ? " · 已是最新版本"
+                        : " · 可连接 GitHub 检查新版"}
+                  </p>
+                </div>
+                {updateInfo && (
+                  <span className={"badge " + (updateInfo.hasUpdate ? "" : "green")}>
+                    {updateInfo.hasUpdate ? "有新版本" : "最新"}
+                  </span>
+                )}
+              </div>
+              <div className="button-row">
+                <button
+                  className="secondary"
+                  disabled={updateBusy}
+                  onClick={checkForUpdate}
+                >
+                  <RefreshCw size={15} className={updateBusy ? "spin" : ""} />
+                  {updateBusy ? "正在检查" : "检查更新"}
+                </button>
+                <button className="secondary" onClick={() => call("openReleases")}>
+                  <ArrowUpRight size={15} /> 打开下载页
+                </button>
+              </div>
             </section>
             <section className="settings-card">
               <div className="section-heading">

@@ -19,6 +19,7 @@ const {
   normalize,
   MODES,
   providerEnv,
+  isNewerVersion,
   id,
 } = require("./core.cjs");
 const exec = promisify(execFile);
@@ -38,6 +39,7 @@ let win,
   closePromptOpen = false;
 const pending = new Map();
 const home = os.homedir();
+const releasesPage = "https://github.com/DongfangYanxu2024/cc-board/releases";
 function persist() {
   if (db && state)
     db.prepare("INSERT OR REPLACE INTO state(id, payload) VALUES (1, ?)").run(
@@ -183,12 +185,52 @@ async function environment() {
     }
   }
   return {
+    appVersion: app.getVersion(),
     cliPath,
     version,
     auth,
     error,
     ccSwitch: fs.existsSync(path.join(home, ".cc-switch", "cc-switch.db")),
     dataPath: app.getPath("userData"),
+  };
+}
+async function checkUpdate() {
+  let response;
+  try {
+    response = await fetch(
+      "https://api.github.com/repos/DongfangYanxu2024/cc-board/releases?per_page=10",
+      {
+        headers: {
+          accept: "application/vnd.github+json",
+          "user-agent": `cc-board/${app.getVersion()}`,
+        },
+        redirect: "error",
+        signal: AbortSignal.timeout(15000),
+      },
+    );
+  } catch {
+    throw Error("无法连接 GitHub，请检查网络后重试");
+  }
+  if (!response.ok)
+    throw Error(`GitHub 更新服务返回 HTTP ${response.status}，请稍后重试`);
+  const releases = await response.json();
+  const latest = Array.isArray(releases)
+    ? releases.find(
+        (release) =>
+          !release.draft && /^v?\d+\.\d+\.\d+/.test(release.tag_name || ""),
+      )
+    : null;
+  const current = app.getVersion();
+  if (!latest)
+    return { current, latest: null, hasUpdate: false, url: releasesPage };
+  return {
+    current,
+    latest: latest.tag_name.replace(/^v/i, ""),
+    hasUpdate: isNewerVersion(latest.tag_name, current),
+    name: latest.name || latest.tag_name,
+    prerelease: Boolean(latest.prerelease),
+    publishedAt: latest.published_at || null,
+    url: latest.html_url || releasesPage,
   };
 }
 function safeUrl(value) {
@@ -853,6 +895,8 @@ const actions = {
   },
   installCli,
   authLogin,
+  checkUpdate,
+  openReleases: () => shell.openExternal(releasesPage),
   docs: () => shell.openExternal("https://code.claude.com/docs/en/setup"),
   exportSession: async (data) => {
     const s = state.sessions.find((s) => s.id === data.id);
@@ -889,11 +933,19 @@ async function runDesktopSmoke(index) {
       const button = text => [...document.querySelectorAll('button')].find(node => node.textContent.includes(text));
       button('模型与服务商')?.click(); await wait(80);
       if (!document.querySelector('.provider-form')) throw Error('服务商表单未显示');
-      await window.board.invoke('saveProvider', { name: '本地测试服务', model: 'test-model', baseUrl: 'http://127.0.0.1:9999', authType: 'token', key: ${JSON.stringify(process.env.CCB_SMOKE_KEY || "")} });
+      try {
+        await window.board.invoke('saveProvider', { name: '本地测试服务', model: 'test-model', baseUrl: 'http://127.0.0.1:9999', authType: 'token', key: ${JSON.stringify(process.env.CCB_SMOKE_KEY || "")} });
+      } catch (error) { throw Error('保存服务商失败：' + error.message); }
       await wait(150);
-      const importResult = ${JSON.stringify(process.env.CCB_SMOKE_IMPORT === "1")} ? await window.board.invoke('importProviders') : null;
-      const sessionId = await window.board.invoke('createSession', { cwd: ${JSON.stringify(cwd)} });
-      await window.board.invoke('renameSession', { id: sessionId, title: '保存的中文历史' });
+      let importResult = null;
+      try {
+        importResult = ${JSON.stringify(process.env.CCB_SMOKE_IMPORT === "1")} ? await window.board.invoke('importProviders') : null;
+      } catch (error) { throw Error('导入服务商失败：' + error.message); }
+      let sessionId;
+      try {
+        sessionId = await window.board.invoke('createSession', { cwd: ${JSON.stringify(cwd)} });
+        await window.board.invoke('renameSession', { id: sessionId, title: '保存的中文历史' });
+      } catch (error) { throw Error('保存历史失败：' + error.message); }
       return { sessionId, providerVisible: document.body.innerText.includes('本地测试服务'), importResult };
     })()`);
     if (!ui.providerVisible) fail("服务商保存后未显示");
@@ -940,7 +992,17 @@ async function runDesktopSmoke(index) {
         fail("原生桥接未返回助手消息");
       await new Promise((resolve) => setTimeout(resolve, 120));
     }
-    const png = await win.webContents.capturePage();
+    let png;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        png = await win.webContents.capturePage();
+        break;
+      } catch (error) {
+        if (attempt === 3)
+          throw Error(`界面截图失败：${String(error?.message || error)}`);
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      }
+    }
     fs.writeFileSync(output.replace(/\.json$/i, ".png"), png.toPNG());
     fs.writeFileSync(
       output,

@@ -5,7 +5,16 @@ const {
   argumentsFor,
   normalize,
   providerEnv,
+  isNewerVersion,
 } = require("../electron/core.cjs");
+
+test("version comparison accepts release tags and ignores older releases", () => {
+  assert.equal(isNewerVersion("v0.1.1", "0.1.0"), true);
+  assert.equal(isNewerVersion("0.2.0", "0.1.9"), true);
+  assert.equal(isNewerVersion("v0.1.0", "0.1.0"), false);
+  assert.equal(isNewerVersion("v0.0.9", "0.1.0"), false);
+  assert.equal(isNewerVersion("latest", "0.1.0"), false);
+});
 test("stream framing survives fragmented UTF-8 and trailing lines", () => {
   const events = [],
     invalid = [];
