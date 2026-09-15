@@ -27,6 +27,10 @@ import {
   CircleHelp,
   Clock,
   LoaderCircle,
+  Pin,
+  Copy,
+  Trash2,
+  FolderPlus,
 } from "lucide-react";
 import "./style.css";
 
@@ -67,6 +71,7 @@ function App() {
   const bottom = useRef(null),
     input = useRef(null),
     conversation = useRef(null),
+    menuWrap = useRef(null),
     followOutput = useRef(true);
   const session = state.sessions.find((s) => s.id === selected),
     running = Boolean(state.running),
@@ -144,6 +149,21 @@ function App() {
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
   }, [rename]);
+  useEffect(() => {
+    if (!menu) return;
+    const close = (event) => {
+      if (event.key === "Escape") setMenu(false);
+    };
+    const closeOutside = (event) => {
+      if (!menuWrap.current?.contains(event.target)) setMenu(false);
+    };
+    window.addEventListener("keydown", close);
+    document.addEventListener("pointerdown", closeOutside);
+    return () => {
+      window.removeEventListener("keydown", close);
+      document.removeEventListener("pointerdown", closeOutside);
+    };
+  }, [menu]);
   async function newChat() {
     const cwd = await call("pickFolder");
     if (!cwd) return;
@@ -191,6 +211,43 @@ function App() {
     const result = await call("archiveSession", { id: selected });
     setMenu(false);
     if (result !== null) select(next?.id || null);
+  }
+  async function pinCurrent() {
+    const result = await call("setSessionPinned", {
+      id: selected,
+      pinned: !session?.pinned,
+    });
+    setMenu(false);
+    if (result)
+      setNotice(result.pinned ? "对话已置顶。" : "已取消置顶。");
+  }
+  async function newChatInCurrentFolder() {
+    const sid = await call("createSessionInSameFolder", { id: selected });
+    setMenu(false);
+    if (sid) {
+      select(sid);
+      setView("chat");
+      setPrompt("");
+      setNotice("已在同一文件夹新建对话。");
+      setTimeout(() => input.current?.focus(), 0);
+    }
+  }
+  async function deleteCurrent() {
+    const currentId = selected;
+    const next = visibleSessions.find((item) => item.id !== currentId);
+    const result = await call("deleteSession", { id: currentId });
+    setMenu(false);
+    if (result?.deleted) {
+      select(next?.id || null);
+      setNotice("对话已从 cc-board 中永久删除。");
+    }
+  }
+  async function copyMessage(messageId) {
+    const result = await call("copyMessage", {
+      sessionId: selected,
+      messageId,
+    });
+    if (result?.copied) setNotice("消息已复制到剪贴板。");
   }
   async function changeMode(value) {
     if (running) {
@@ -244,7 +301,11 @@ function App() {
               .toLowerCase()
               .includes(query.toLowerCase()),
         )
-        .sort((a, b) => (b.updated || 0) - (a.updated || 0)),
+        .sort(
+          (a, b) =>
+            Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) ||
+            (b.updated || 0) - (a.updated || 0),
+        ),
     [state.sessions, showArchived, query],
   );
   const runs = session
@@ -312,6 +373,9 @@ function App() {
                 {s.title}
                 <small>{s.cwd.split(/[\\/]/).pop()}</small>
               </span>
+              {s.pinned && (
+                <Pin className="history-pin" size={12} aria-label="已置顶" />
+              )}
               {state.running?.sessionId === s.id && <i className="dot" />}
             </button>
           ))}
@@ -345,7 +409,8 @@ function App() {
             <Settings size={17} /> 设置与环境
           </button>
           <div className="local">
-            <i className="dot" /> 本地工作空间 <span>v0.1.0</span>
+            <i className="dot" /> 本地工作空间{" "}
+            <span>{env?.appVersion ? `v${env.appVersion}` : "预览版"}</span>
           </div>
         </div>
       </aside>
@@ -368,18 +433,37 @@ function App() {
               {env?.version ? "Claude Code 已连接" : "待连接 Claude Code"}
             </span>
             {session && view === "chat" && (
-              <div className="menu-wrap">
+              <div className="menu-wrap" ref={menuWrap}>
                 <button
                   className="icon"
                   aria-label="会话操作"
+                  aria-haspopup="menu"
+                  aria-expanded={menu}
                   title="会话操作"
                   onClick={() => setMenu(!menu)}
                 >
                   <MoreHorizontal size={20} />
                 </button>
                 {menu && (
-                  <div className="dropdown">
+                  <div className="dropdown" role="menu">
                     <button
+                      role="menuitem"
+                      aria-pressed={Boolean(session.pinned)}
+                      onClick={pinCurrent}
+                    >
+                      <Pin size={14} />
+                      {session.pinned ? "取消置顶" : "置顶对话"}
+                    </button>
+                    <button
+                      role="menuitem"
+                      title={session.cwd}
+                      onClick={newChatInCurrentFolder}
+                    >
+                      <FolderPlus size={14} />
+                      在此文件夹新建对话
+                    </button>
+                    <button
+                      role="menuitem"
                       onClick={() => {
                         setRename(session.title);
                         setMenu(false);
@@ -389,6 +473,7 @@ function App() {
                       重命名
                     </button>
                     <button
+                      role="menuitem"
                       onClick={() => {
                         call("exportSession", { id: selected });
                         setMenu(false);
@@ -397,9 +482,18 @@ function App() {
                       <FileDown size={14} />
                       导出 Markdown
                     </button>
-                    <button onClick={archiveCurrent}>
+                    <button role="menuitem" onClick={archiveCurrent}>
                       <Archive size={14} />
                       {session.archived ? "取消归档" : "归档会话"}
+                    </button>
+                    <button
+                      role="menuitem"
+                      className="danger-item"
+                      disabled={active}
+                      onClick={deleteCurrent}
+                    >
+                      <Trash2 size={14} />
+                      永久删除…
                     </button>
                   </div>
                 )}
@@ -482,6 +576,7 @@ function App() {
                             )?.tool
                           : null
                       }
+                      onCopy={() => copyMessage(m.id)}
                     />
                   ))}
                   {active && (
@@ -1098,7 +1193,7 @@ function App() {
     </div>
   );
 }
-function Message({ message: m, toolName }) {
+function Message({ message: m, toolName, onCopy }) {
   if (m.role === "audit")
     return (
       <div className="audit">
@@ -1140,6 +1235,16 @@ function Message({ message: m, toolName }) {
             minute: "2-digit",
           })}
         </time>
+        <button
+          className="message-copy icon"
+          aria-label={
+            m.role === "user" ? "复制你的消息" : "复制 Claude Code 回复"
+          }
+          title="复制消息"
+          onClick={onCopy}
+        >
+          <Copy size={13} />
+        </button>
       </div>
       <div className="message-content">
         {m.text.split(/(```[\s\S]*?```)/g).map((part, i) =>

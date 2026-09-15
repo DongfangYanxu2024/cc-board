@@ -5,6 +5,7 @@ const {
   dialog,
   safeStorage,
   shell,
+  clipboard,
 } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -82,6 +83,8 @@ function normalizedState(value) {
         cwd: typeof session.cwd === "string" ? session.cwd : "",
         messages: Array.isArray(session.messages) ? session.messages : [],
         runs: Array.isArray(session.runs) ? session.runs : [],
+        pinned: session.pinned === true,
+        archived: session.archived === true,
       }))
     : [];
   return {
@@ -119,6 +122,35 @@ function message(session, role, text, extra = {}) {
   session.messages.push(m);
   session.updated = Date.now();
   return m;
+}
+function requireDirectory(value) {
+  try {
+    if (
+      typeof value !== "string" ||
+      !path.isAbsolute(value) ||
+      !fs.statSync(value).isDirectory()
+    )
+      throw Error();
+  } catch {
+    throw Error("工作文件夹不存在或不可访问，请重新选择");
+  }
+  return value;
+}
+function createSessionRecord(cwd) {
+  return {
+    id: id(),
+    title: "新对话",
+    cwd: requireDirectory(cwd),
+    created: Date.now(),
+    updated: Date.now(),
+    messages: [],
+    runs: [],
+    providerId: "native",
+    model: "",
+    mode: "default",
+    pinned: false,
+    archived: false,
+  };
 }
 async function findCli() {
   const candidates = [
@@ -495,6 +527,7 @@ async function startRun(data) {
             ELECTRON_RUN_AS_NODE: "1",
             CCB_PORT: String(current.server.address().port),
             CCB_TOKEN: current.token,
+            CCB_VERSION: app.getVersion(),
           },
         },
       },
@@ -750,23 +783,7 @@ const actions = {
     return environment();
   },
   createSession: (data) => {
-    if (
-      !data.cwd ||
-      !path.isAbsolute(data.cwd) ||
-      !fs.statSync(data.cwd).isDirectory()
-    )
-      throw Error("请选择有效工作目录");
-    const s = {
-      id: id(),
-      title: "新对话",
-      cwd: data.cwd,
-      created: Date.now(),
-      updated: Date.now(),
-      messages: [],
-      runs: [],
-      providerId: "native",
-      mode: "default",
-    };
+    const s = createSessionRecord(data.cwd);
     state.sessions.unshift(s);
     update();
     return s.id;
@@ -785,6 +802,54 @@ const actions = {
       s.archived = !s.archived;
       update();
     }
+  },
+  setSessionPinned: (data) => {
+    const s = state.sessions.find((session) => session.id === data.id);
+    if (!s) throw Error("会话不存在");
+    s.pinned = data.pinned === true;
+    update();
+    return { pinned: s.pinned };
+  },
+  createSessionInSameFolder: (data) => {
+    const source = state.sessions.find((session) => session.id === data.id);
+    if (!source) throw Error("会话不存在");
+    const s = createSessionRecord(source.cwd);
+    state.sessions.unshift(s);
+    update();
+    return s.id;
+  },
+  deleteSession: async (data) => {
+    if (run?.session.id === data.id) throw Error("运行中的会话不能删除");
+    const index = state.sessions.findIndex((session) => session.id === data.id);
+    if (index < 0) throw Error("会话不存在");
+    const target = state.sessions[index];
+    const answer = await dialog.showMessageBox(win, {
+      type: "warning",
+      message: `永久删除“${target.title}”？`,
+      detail:
+        "消息、用量和会话关联将从 cc-board 删除且无法恢复。不会删除工作目录中的文件，也不会清除 Claude Code 自身保存的历史记录。",
+      buttons: ["取消", "永久删除"],
+      cancelId: 0,
+      defaultId: 0,
+    });
+    if (answer.response !== 1) return { cancelled: true };
+    if (run?.session.id === data.id) throw Error("运行中的会话不能删除");
+    const confirmedIndex = state.sessions.findIndex(
+      (session) => session.id === data.id,
+    );
+    if (confirmedIndex < 0) throw Error("会话已经不存在");
+    state.sessions.splice(confirmedIndex, 1);
+    update();
+    persist();
+    return { deleted: true };
+  },
+  copyMessage: async (data) => {
+    const s = state.sessions.find((session) => session.id === data.sessionId);
+    const item = s?.messages.find((entry) => entry.id === data.messageId);
+    if (!item) throw Error("消息不存在");
+    const text = String(item.text || "");
+    await clipboard.writeText(text);
+    return { copied: true, length: text.length };
   },
   start: startRun,
   stop: stopRun,
@@ -942,13 +1007,48 @@ async function runDesktopSmoke(index) {
         importResult = ${JSON.stringify(process.env.CCB_SMOKE_IMPORT === "1")} ? await window.board.invoke('importProviders') : null;
       } catch (error) { throw Error('导入服务商失败：' + error.message); }
       let sessionId;
+      let sameFolderId;
       try {
         sessionId = await window.board.invoke('createSession', { cwd: ${JSON.stringify(cwd)} });
         await window.board.invoke('renameSession', { id: sessionId, title: '保存的中文历史' });
+        await window.board.invoke('setSessionPinned', { id: sessionId, pinned: true });
+        sameFolderId = await window.board.invoke('createSessionInSameFolder', { id: sessionId });
       } catch (error) { throw Error('保存历史失败：' + error.message); }
-      return { sessionId, providerVisible: document.body.innerText.includes('本地测试服务'), importResult };
+      return { sessionId, sameFolderId, providerVisible: document.body.innerText.includes('本地测试服务'), importResult };
     })()`);
     if (!ui.providerVisible) fail("服务商保存后未显示");
+    const originalSession = state.sessions.find((item) => item.id === ui.sessionId);
+    const sameFolderSession = state.sessions.find(
+      (item) => item.id === ui.sameFolderId,
+    );
+    if (
+      !sameFolderSession ||
+      sameFolderSession.cwd !== originalSession.cwd ||
+      sameFolderSession.messages.length ||
+      sameFolderSession.runs.length ||
+      sameFolderSession.claudeSessionId
+    )
+      fail("同一文件夹新建对话没有保持空白会话");
+    const copyText = "复制中文消息\n```js\nconst ok = true;\n```";
+    const copyItem = message(originalSession, "assistant", copyText);
+    await win.webContents.executeJavaScript(
+      `window.board.invoke('copyMessage', { sessionId: ${JSON.stringify(ui.sessionId)}, messageId: ${JSON.stringify(copyItem.id)} })`,
+    );
+    const copiedText = await clipboard.readText();
+    if (String(copiedText).replace(/\r\n/g, "\n") !== copyText)
+      fail("消息复制内容不完整");
+    originalSession.messages.pop();
+    const originalDialog = dialog.showMessageBox;
+    try {
+      dialog.showMessageBox = async () => ({ response: 1 });
+      await win.webContents.executeJavaScript(
+        `window.board.invoke('deleteSession', { id: ${JSON.stringify(ui.sameFolderId)} })`,
+      );
+    } finally {
+      dialog.showMessageBox = originalDialog;
+    }
+    if (state.sessions.some((item) => item.id === ui.sameFolderId))
+      fail("永久删除后会话仍然存在");
     persist();
     await win.loadFile(index);
     await new Promise((resolve) => setTimeout(resolve, 150));
@@ -1011,6 +1111,9 @@ async function runDesktopSmoke(index) {
           ok: true,
           providerCount: loadedState.providers.length,
           sessionCount: loadedState.sessions.length,
+          pinnedSession: Boolean(
+            loadedState.sessions.find((item) => item.id === ui.sessionId)?.pinned,
+          ),
           keyProtected:
             !process.env.CCB_SMOKE_KEY ||
             !JSON.stringify(loadedState).includes(process.env.CCB_SMOKE_KEY),

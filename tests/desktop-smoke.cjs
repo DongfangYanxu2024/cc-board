@@ -54,6 +54,7 @@ async function main() {
     assert.equal(result.providerCount, 1);
   }
   assert.equal(result.sessionCount, 1);
+  assert.equal(result.pinnedSession, true);
   assert.equal(result.keyProtected, true);
   assert.ok(fs.existsSync(output.replace(/\.json$/, ".png")), "未生成界面截图");
   console.log(

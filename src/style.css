@@ -183,6 +183,11 @@ button:hover {
   font-size: 10px;
   color: #929994;
 }
+.history-pin {
+  color: #718878;
+  flex-shrink: 0;
+  transform: rotate(-18deg);
+}
 .history-empty {
   text-align: center;
   color: #a0a8a3;
@@ -490,6 +495,17 @@ header {
   font-size: 10px;
   color: #b1b6b3;
   margin-left: 3px;
+}
+.message-copy {
+  width: 32px;
+  height: 32px;
+  margin-left: auto;
+  opacity: 0.55;
+}
+.message-copy:hover,
+.message-copy:focus-visible {
+  opacity: 1;
+  background: #edf2ee;
 }
 .avatar {
   width: 25px;
@@ -904,6 +920,15 @@ h2 {
 }
 .dropdown button:hover {
   background: #f1f4f1;
+}
+.dropdown .danger-item {
+  color: #a65349;
+  border-top: 1px solid #edf0ed;
+  border-radius: 0 0 4px 4px;
+  margin-top: 4px;
+}
+.dropdown .danger-item:hover {
+  background: #fff1ef;
 }
 .modal-overlay {
   position: fixed;
