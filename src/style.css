@@ -1770,3 +1770,273 @@ html[data-theme="dark"] .skill-install-result,
 html[data-theme="dark"] .market-note {
   border-color: #39433b;
 }
+
+/* Complete dark-theme audit: shared navigation, chat, providers, settings,
+   status states and overlays. Keep this block last so light defaults cannot
+   override it when new components are added above. */
+html[data-theme="dark"] {
+  --dark-canvas: #121613;
+  --dark-sidebar: #181e1a;
+  --dark-surface: #202622;
+  --dark-raised: #252d27;
+  --dark-hover: #2b352e;
+  --dark-border: #3b463e;
+  --dark-border-strong: #536258;
+  --dark-text: #e7ede8;
+  --dark-text-secondary: #b2bdb5;
+  --dark-text-muted: #8f9d94;
+  --dark-accent: #a4c8ae;
+  scrollbar-color: #59655d #171c18;
+}
+html[data-theme="dark"] body,
+html[data-theme="dark"] main,
+html[data-theme="dark"] .conversation,
+html[data-theme="dark"] .page {
+  background: var(--dark-canvas);
+  color: var(--dark-text);
+}
+html[data-theme="dark"] .sidebar {
+  background: var(--dark-sidebar);
+  border-color: #2f3832;
+}
+html[data-theme="dark"] header {
+  background: #1a201c;
+  border-color: #303a33;
+}
+html[data-theme="dark"] .breadcrumb span,
+html[data-theme="dark"] .connection,
+html[data-theme="dark"] .history-heading,
+html[data-theme="dark"] .history-item small,
+html[data-theme="dark"] .local,
+html[data-theme="dark"] .composer-footer,
+html[data-theme="dark"] .usage-line,
+html[data-theme="dark"] .message-label time,
+html[data-theme="dark"] .audit,
+html[data-theme="dark"] .form-footer small,
+html[data-theme="dark"] .dependency-info > small,
+html[data-theme="dark"] .muted-note {
+  color: var(--dark-text-muted);
+}
+html[data-theme="dark"] .alpha {
+  color: #a9b6ae;
+  border-color: #5b6a61;
+}
+html[data-theme="dark"] .history-item,
+html[data-theme="dark"] .nav,
+html[data-theme="dark"] .icon,
+html[data-theme="dark"] .search,
+html[data-theme="dark"] .select-chip,
+html[data-theme="dark"] .composer-options > span {
+  color: var(--dark-text-secondary);
+}
+html[data-theme="dark"] .history-item:hover,
+html[data-theme="dark"] .nav:hover,
+html[data-theme="dark"] .dropdown button:hover,
+html[data-theme="dark"] .message-copy:hover,
+html[data-theme="dark"] .message-copy:focus-visible {
+  background: var(--dark-hover);
+}
+html[data-theme="dark"] .history-item.selected,
+html[data-theme="dark"] .nav.active {
+  background: #30483a;
+  color: #f0f6f1;
+}
+html[data-theme="dark"] .history-item.selected small {
+  color: #c7d3ca;
+}
+html[data-theme="dark"] .new-chat,
+html[data-theme="dark"] .composer,
+html[data-theme="dark"] .provider-card,
+html[data-theme="dark"] .provider-form,
+html[data-theme="dark"] .settings-card,
+html[data-theme="dark"] .dropdown,
+html[data-theme="dark"] .inline-confirm {
+  background: var(--dark-surface);
+  border-color: var(--dark-border);
+  color: var(--dark-text);
+  box-shadow: 0 8px 24px #00000028;
+}
+html[data-theme="dark"] .suggestion,
+html[data-theme="dark"] .tool-card,
+html[data-theme="dark"] .message-content pre,
+html[data-theme="dark"] .tool-card pre,
+html[data-theme="dark"] .system-message,
+html[data-theme="dark"] .running-elsewhere {
+  background: var(--dark-raised);
+  border-color: var(--dark-border);
+  color: var(--dark-text-secondary);
+}
+html[data-theme="dark"] .suggestion:hover {
+  background: var(--dark-hover);
+  border-color: #607465;
+}
+html[data-theme="dark"] .suggestion strong,
+html[data-theme="dark"] .message-label strong,
+html[data-theme="dark"] .provider-card strong,
+html[data-theme="dark"] .dependency-name strong,
+html[data-theme="dark"] .inline-confirm strong {
+  color: var(--dark-text);
+}
+html[data-theme="dark"] .welcome > p,
+html[data-theme="dark"] .suggestion small,
+html[data-theme="dark"] .welcome-note,
+html[data-theme="dark"] .provider-card p,
+html[data-theme="dark"] .provider-card small,
+html[data-theme="dark"] .dependency-info > p,
+html[data-theme="dark"] .settings-card > p,
+html[data-theme="dark"] .section-heading p,
+html[data-theme="dark"] .inline-confirm p {
+  color: var(--dark-text-secondary);
+}
+html[data-theme="dark"] .welcome-label,
+html[data-theme="dark"] .suggestion,
+html[data-theme="dark"] .card-arrow,
+html[data-theme="dark"] .text-button,
+html[data-theme="dark"] .section-heading,
+html[data-theme="dark"] .eyebrow {
+  color: var(--dark-accent);
+}
+html[data-theme="dark"] .composer-options {
+  background: transparent;
+  border-color: var(--dark-border);
+}
+html[data-theme="dark"] .composer-options button,
+html[data-theme="dark"] .appearance-options button,
+html[data-theme="dark"] .segmented-field button,
+html[data-theme="dark"] .secondary {
+  background: var(--dark-raised);
+  border-color: var(--dark-border-strong);
+  color: #dce5de;
+}
+html[data-theme="dark"] .composer-options button:hover,
+html[data-theme="dark"] .appearance-options button:hover,
+html[data-theme="dark"] .secondary:hover {
+  background: var(--dark-hover);
+  border-color: #66786b;
+}
+html[data-theme="dark"] .composer-options button.selected,
+html[data-theme="dark"] .appearance-options button.selected,
+html[data-theme="dark"] .segmented-field button.selected {
+  background: #3a5846;
+  border-color: #718f7b;
+  color: #ffffff;
+}
+html[data-theme="dark"] input,
+html[data-theme="dark"] textarea,
+html[data-theme="dark"] select,
+html[data-theme="dark"] .settings-card code {
+  background: #171c18;
+  border-color: var(--dark-border);
+  color: var(--dark-text);
+}
+html[data-theme="dark"] .search input,
+html[data-theme="dark"] .skill-search input,
+html[data-theme="dark"] .composer textarea {
+  background: transparent;
+}
+html[data-theme="dark"] input::placeholder,
+html[data-theme="dark"] textarea::placeholder {
+  color: #829087;
+  opacity: 1;
+}
+html[data-theme="dark"] .select-chip.permission,
+html[data-theme="dark"] .command-chip,
+html[data-theme="dark"] .model-chip {
+  border-color: var(--dark-border);
+}
+html[data-theme="dark"] .user-avatar,
+html[data-theme="dark"] .assistant-avatar,
+html[data-theme="dark"] .provider-icon {
+  background: #304038;
+  color: #afd0b8;
+}
+html[data-theme="dark"] .info {
+  background: #22332a;
+  color: #b0cbb8;
+  border-color: #3c5a47;
+}
+html[data-theme="dark"] .approval {
+  background: #332f24;
+  border-color: #625a3d;
+  color: #e4d9b7;
+}
+html[data-theme="dark"] .approval > div:first-child {
+  color: #e0c981;
+}
+html[data-theme="dark"] .error,
+html[data-theme="dark"] .dependency-progress.failed {
+  background: #3a2624;
+  color: #f1aaa1;
+  border-color: #75423d;
+}
+html[data-theme="dark"] .risk-panel {
+  background: #2d211f;
+  border-color: #70423b;
+  color: var(--dark-text);
+}
+html[data-theme="dark"] .risk-panel > p {
+  color: #d8c1bc;
+}
+html[data-theme="dark"] .risk-icon,
+html[data-theme="dark"] .risk-list span {
+  background: #432a27;
+  border-color: #74453f;
+  color: #f0aaa0;
+}
+html[data-theme="dark"] .danger,
+html[data-theme="dark"] .risk,
+html[data-theme="dark"] .risk button,
+html[data-theme="dark"] .dropdown .danger-item {
+  color: #efa096;
+  border-color: var(--dark-border-strong);
+}
+html[data-theme="dark"] .dropdown .danger-item:hover {
+  background: #3a2624;
+}
+html[data-theme="dark"] .dependency-card,
+html[data-theme="dark"] .setup-heading {
+  border-color: var(--dark-border);
+}
+html[data-theme="dark"] .dependency-icon {
+  background: #3b2d29;
+  color: #e2aa98;
+}
+html[data-theme="dark"] .dependency-icon.ready,
+html[data-theme="dark"] .dependency-name .status-ready {
+  background: #274032;
+  color: #a9d1b6;
+}
+html[data-theme="dark"] .dependency-name span {
+  background: #303833;
+  color: #bdc7bf;
+}
+html[data-theme="dark"] .dependency-name .status-missing {
+  background: #432a27;
+  color: #f0aaa0;
+}
+html[data-theme="dark"] .dependency-progress {
+  background: #29312b;
+  color: var(--dark-text-secondary);
+}
+html[data-theme="dark"] .setup-note {
+  background: #342f24;
+  color: #d9c79a;
+}
+html[data-theme="dark"] .setup-note.optional {
+  background: #25342b;
+  color: #b5cdbb;
+}
+html[data-theme="dark"] .badge {
+  background: #303833;
+  color: #c2ccc4;
+}
+html[data-theme="dark"] .badge.green,
+html[data-theme="dark"] .official-tag {
+  background: #274032;
+  color: #afe0be;
+}
+html[data-theme="dark"] .toast {
+  background: #263f31;
+  border: 1px solid #496552;
+  color: #f0f6f1;
+}

@@ -84,6 +84,13 @@ async function main() {
   assert.equal(result.skillsUi?.ccSwitchOptional, true);
   assert.equal(result.skillsUi?.darkTheme, true);
   assert.equal(result.skillsUi?.skillDarkTheme, true);
+  assert.equal(result.visualAudit?.length, 8);
+  assert.equal(result.visualAudit?.every((view) => view.issues.length === 0), true);
+  for (const view of ["skills", "providers", "settings", "chat", "model-menu", "risk-confirm", "session-menu", "provider-confirm"])
+    assert.ok(
+      fs.existsSync(output.replace(/\.json$/, `-${view}.png`)),
+      `未生成 ${view} 黑色外观截图`,
+    );
   assert.ok(fs.existsSync(output.replace(/\.json$/, ".png")), "未生成界面截图");
   console.log(
     "Desktop smoke passed: Electron launch, renderer, IPC, provider state, history reload, graceful exit.",

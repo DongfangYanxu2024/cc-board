@@ -616,6 +616,8 @@ function uniquePaths(values) {
   return [...new Set(values.filter(Boolean).map((value) => path.resolve(value)))];
 }
 function ccSwitchRoots() {
+  if (process.env.CCB_TEST_CC_SWITCH_DIR)
+    return uniquePaths([process.env.CCB_TEST_CC_SWITCH_DIR]);
   const roots = [process.env.CCB_TEST_CC_SWITCH_DIR, path.join(home, ".cc-switch")];
   if (process.env.HOME) roots.push(path.join(process.env.HOME, ".cc-switch"));
   const pathFiles = [
@@ -654,7 +656,8 @@ function claudeSettingsPaths() {
       dirs.push(settings.claudeConfigDir, settings.claude_config_dir);
     } catch {}
   }
-  dirs.push(path.join(home, ".claude"));
+  if (!process.env.CCB_TEST_CC_SWITCH_DIR && !process.env.CCB_TEST_CLAUDE_CONFIG_DIR)
+    dirs.push(path.join(home, ".claude"));
   return uniquePaths(dirs).flatMap((dir) => [path.join(dir, "settings.json"), path.join(dir, "claude.json")]);
 }
 function extractProvider(name, config, sourceId) {
@@ -1562,6 +1565,88 @@ async function runDesktopSmoke(index) {
       if (!skillsUi.skillDarkTheme) fail("黑色外观下 Skill 商店卡片颜色不正确");
     }
     let nativeBridge = null;
+    const visualAudit = [];
+    if (process.env.CCB_SMOKE_SKILLS === "1") {
+      const views = [
+        ["skills", "技能商场", ""],
+        ["providers", "模型与服务商", ""],
+        ["settings", "设置与环境", ""],
+        ["chat", null, ""],
+        ["model-menu", null, "model"],
+        ["risk-confirm", null, "risk"],
+        ["session-menu", null, "session"],
+        ["provider-confirm", "模型与服务商", "providerConfirm"],
+      ];
+      for (const [name, navigation, interaction] of views) {
+        const audit = await win.webContents.executeJavaScript(`(async () => {
+          const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+          document.querySelector('.risk-panel .secondary')?.click();
+          document.querySelector('.inline-confirm .secondary')?.click();
+          if (document.querySelector('.dropdown')) document.querySelector('button[aria-label="会话操作"]')?.click();
+          if (${JSON.stringify(navigation)})
+            [...document.querySelectorAll('button')].find(node => node.textContent.includes(${JSON.stringify(navigation)}))?.click();
+          else document.querySelector('.history-item')?.click();
+          await wait(100);
+          const interaction = ${JSON.stringify(interaction)};
+          if (interaction === 'model') document.querySelector('button[aria-label="模型"]')?.click();
+          if (interaction === 'session') document.querySelector('button[aria-label="会话操作"]')?.click();
+          if (interaction === 'providerConfirm') [...document.querySelectorAll('.provider-card .text-button')].find(node => node.textContent.trim() === '测试')?.click();
+          if (interaction === 'risk') {
+            const textarea = document.querySelector('textarea[aria-label="消息输入框"]');
+            const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+            setter.call(textarea, '黑暗模式风险提示测试');
+            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+            document.querySelector('button[aria-label="权限模式"]')?.click();
+            await wait(30);
+            [...document.querySelectorAll('.composer-options button')].find(node => node.textContent.trim() === '完全自动')?.click();
+            await wait(30);
+            document.querySelector('button[aria-label="发送消息"]')?.click();
+          }
+          await wait(80);
+          const parse = value => {
+            const match = value.match(/[\\d.]+/g)?.map(Number) || [0, 0, 0, 1];
+            return [match[0], match[1], match[2], match[3] ?? 1];
+          };
+          const luminance = rgb => {
+            const channels = rgb.slice(0, 3).map(value => {
+              const normalized = value / 255;
+              return normalized <= 0.03928 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+            });
+            return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+          };
+          const background = node => {
+            for (let current = node; current; current = current.parentElement) {
+              const value = parse(getComputedStyle(current).backgroundColor);
+              if (value[3] > 0.95) return value;
+            }
+            return [18, 22, 19, 1];
+          };
+          const issues = [...document.querySelectorAll('button, label, p, small, span, strong, code, h1, h2, h3')]
+            .filter(node => {
+              const rect = node.getBoundingClientRect();
+              const style = getComputedStyle(node);
+              return rect.width && rect.height && style.visibility !== 'hidden' && style.display !== 'none' && node.textContent.trim();
+            })
+            .map(node => {
+              const style = getComputedStyle(node);
+              const foreground = parse(style.color);
+              const bg = background(node);
+              const light = luminance(foreground), dark = luminance(bg);
+              const ratio = (Math.max(light, dark) + 0.05) / (Math.min(light, dark) + 0.05);
+              const large = parseFloat(style.fontSize) >= 24 || (parseFloat(style.fontSize) >= 18.66 && Number(style.fontWeight) >= 700);
+              return { tag: node.tagName, className: node.className?.toString().slice(0, 80), text: node.textContent.trim().replace(/\\s+/g, ' ').slice(0, 60), ratio: Number(ratio.toFixed(2)), minimum: large ? 3 : 4.5, color: foreground.slice(0, 3), background: bg.slice(0, 3) };
+            })
+            .filter(item => item.ratio < item.minimum)
+            .slice(0, 20);
+          return { name: ${JSON.stringify(name)}, issues };
+        })()`);
+        visualAudit.push(audit);
+        const shot = await win.webContents.capturePage();
+        fs.writeFileSync(output.replace(/\.json$/i, `-${name}.png`), shot.toPNG());
+      }
+      if (visualAudit.some((view) => view.issues.length))
+        fail("黑色外观存在严重低对比度元素：" + JSON.stringify(visualAudit));
+    }
     if (process.env.CCB_SMOKE_NATIVE === "1") {
       nativeBridge = await win.webContents.executeJavaScript(`(async () => {
         const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -1633,6 +1718,7 @@ async function runDesktopSmoke(index) {
             : null,
           importResult: ui.importResult,
           skillsUi,
+          visualAudit,
         },
         null,
         2,
