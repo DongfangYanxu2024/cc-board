@@ -2,13 +2,14 @@
 
 cc-board 是一个面向 Claude Code 新用户的 Windows 图形界面。它不重写智能体，也不代理终端输出：任务仍由本机安装的原版 Claude Code 执行，cc-board 负责把流式对话、工具调用、权限请求和历史记录映射到统一界面。
 
-> 当前版本为 `0.3.0` 预览版。建议先在测试项目中使用并保留重要文件的版本控制或备份。
+> 当前版本为 `0.3.1` 预览版。建议先在测试项目中使用并保留重要文件的版本控制或备份。
 
 ## 已实现
 
 - 中文聊天界面、流式回答、工具调用和结果卡片。
 - 本地历史记录、搜索、重命名、归档、恢复 Claude Code 会话和 Markdown 导出。
 - 原生 Claude Code 检测、官方安装入口和官方账户登录入口。
+- 首次启动自动检查 Claude Code、Git、Node.js 和 WinGet，显示安装进度，并在自动安装失败时提供官方下载入口。
 - 从原版 CC Switch 数据库只读导入 Claude 服务商配置，不修改 CC Switch 文件。
 - 服务商/API 地址/API Key 配置、连接测试，以及按次选择模型。
 - 标准审批、计划模式、自动编辑和完全自动四种权限模式。
@@ -22,8 +23,8 @@ cc-board 是一个面向 Claude Code 新用户的 Windows 图形界面。它不�
 
 ## 安装和首次使用
 
-1. 从 GitHub Releases 下载 `cc-board-Setup-0.3.0.exe` 并安装。
-2. 打开“设置与环境”，检测 Claude Code。没有安装时可点击“安装官方版本”。
+1. 从 GitHub Releases 下载 `cc-board-Setup-0.3.1.exe` 并安装。
+2. 首次启动会自动打开“设置与环境”并检查 Claude Code、Git、Node.js 和 WinGet。缺少 Claude Code 时可一键安装；Git 为推荐组件；Node.js 只在源码开发时需要。
 3. 使用 Anthropic 官方账户时点击“登录 Claude”，在浏览器完成登录。使用兼容服务商时可跳过官方登录。
 4. 打开“模型与服务商”，点击“导入 CC Switch”，或手动添加兼容 Anthropic Messages 协议的服务商。
 5. 点击“新建对话”，选择工作文件夹，然后直接描述任务。
@@ -33,10 +34,10 @@ Windows 可能对未签名的预览版安装程序显示“未知发布者”或
 ## Claude Code 与 CC Switch 的关系
 
 - Claude Code 由 Anthropic 官方版本独立安装和更新，cc-board 只启动其本地可执行文件。
-- CC Switch 仍是独立的原版程序。cc-board 只读访问其 `providers` 数据，复制所需配置到自己的本地数据库。
+- CC Switch 不是必需组件，也不需要为了使用 cc-board 额外下载。若你本来就在使用 CC Switch，cc-board 可以只读访问其 `providers` 数据，并复制所需配置到自己的本地数据库。
 - 选择“原生配置 / CC Switch 当前配置”时，Claude Code 直接使用当前原生配置。
 - 在 cc-board 中选择导入或手动配置的服务商时，该配置只对本次启动的 Claude Code 子进程生效。
-- cc-board 不捆绑 Claude Code、CC Switch、模型账户或模型额度。
+- cc-board 不捆绑 Claude Code、CC Switch、Node.js、Git、模型账户或模型额度。安装版 cc-board 自带 Electron 运行环境，不依赖系统 Node.js。
 
 ## 权限说明
 

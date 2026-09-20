@@ -24,6 +24,8 @@ const {
   skillSearchQuery,
   normalizeGitHubRepository,
   isSkillRepository,
+  dependencyDownloadUrls,
+  installPlan,
   id,
 } = require("./core.cjs");
 const exec = promisify(execFile);
@@ -39,6 +41,7 @@ let win,
   persistTimer,
   stateEmitTimer,
   authProcess = null,
+  installProcess = null,
   exitAfterRun = false,
   closePromptOpen = false;
 const pending = new Map();
@@ -190,8 +193,57 @@ async function findCli() {
       return candidate;
   return null;
 }
+async function detectExecutable(command, args, candidates = []) {
+  const paths = candidates.filter(Boolean);
+  try {
+    const found = await exec("where.exe", [command], {
+      windowsHide: true,
+      timeout: 5000,
+    });
+    paths.push(...found.stdout.trim().split(/\r?\n/).filter(Boolean));
+  } catch {}
+  let detectedError = null;
+  for (const executable of [...new Set(paths)]) {
+    if (!path.isAbsolute(executable)) continue;
+    try {
+      const result = await exec(executable, args, {
+        windowsHide: true,
+        timeout: 10000,
+      });
+      return {
+        installed: true,
+        path: executable,
+        version: String(result.stdout || result.stderr || "已安装").trim(),
+      };
+    } catch (error) {
+      if (fs.existsSync(executable))
+        detectedError = {
+          installed: true,
+          path: executable,
+          version: null,
+          error: redact(error.message),
+        };
+    }
+  }
+  return detectedError || { installed: false, path: null, version: null };
+}
 async function environment() {
-  const cliPath = await findCli();
+  const programFiles = process.env.ProgramFiles || "C:\\Program Files";
+  const localAppData = process.env.LOCALAPPDATA || "";
+  const [cliPath, git, node, winget] = await Promise.all([
+    findCli(),
+    detectExecutable("git", ["--version"], [
+      path.join(programFiles, "Git", "cmd", "git.exe"),
+    ]),
+    detectExecutable("node", ["--version"], [
+      path.join(programFiles, "nodejs", "node.exe"),
+    ]),
+    detectExecutable("winget", ["--version"], [
+      localAppData
+        ? path.join(localAppData, "Microsoft", "WindowsApps", "winget.exe")
+        : "",
+    ]),
+  ]);
   let version = null,
     error = null,
     auth = null;
@@ -232,6 +284,7 @@ async function environment() {
     version,
     auth,
     error,
+    dependencies: { git, node, winget },
     ccSwitch: fs.existsSync(path.join(home, ".cc-switch", "cc-switch.db")),
     dataPath: app.getPath("userData"),
   };
@@ -573,7 +626,7 @@ async function startRun(data) {
   if (!MODES.includes(mode)) throw Error("权限模式无效");
   if (mode === "bypassPermissions") {
     if (data.bypassConfirmed !== true)
-      throw Error("完全自动模式需要在风险确认窗口中明确确认");
+      throw Error("完全自动模式需要在风险确认区中明确确认");
   }
   const profile = state.providers.find((p) => p.id === data.providerId);
   if (data.providerId !== "native" && !profile) throw Error("服务商不存在");
@@ -779,39 +832,73 @@ async function stopRun() {
   // Do not report idle until the process close event confirms termination.
   update();
 }
-async function installCli() {
+function cleanInstallerOutput(value) {
+  return redact(value)
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "")
+    .replace(/\r(?!\n)/g, "\n")
+    .trim();
+}
+async function installDependency(data = {}) {
   if (run) throw Error("运行中不能安装");
-  const answer = await dialog.showMessageBox(win, {
-    type: "question",
-    message: "下载并运行 Claude Code 官方安装脚本？",
-    detail:
-      "来源：https://claude.ai/install.ps1。安装到你的用户目录，不包含模型账户或额度。",
-    buttons: ["取消", "安装"],
-    defaultId: 1,
-    cancelId: 0,
+  if (installProcess) throw Error("另一个安装任务正在进行中");
+  const target = String(data.target || "");
+  const current = await environment();
+  const plan = installPlan(target, current.dependencies.winget.path || "");
+  if (!plan.command) return { manual: true, url: plan.manualUrl };
+  const names = { claude: "Claude Code", git: "Git for Windows", node: "Node.js LTS" };
+  emit("install", {
+    target,
+    status: "running",
+    text: `正在安装 ${names[target]}…`,
   });
-  if (answer.response !== 1) return { cancelled: true };
-  emit("install", { text: "正在从官方来源安装 Claude Code…" });
   try {
-    const result = await exec(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        "irm https://claude.ai/install.ps1 | iex",
-      ],
-      { windowsHide: true, timeout: 300000, maxBuffer: 4 * 1024 * 1024 },
-    );
-    emit("install", {
-      text: redact(result.stdout || "安装结束，请重新检测环境"),
+    await new Promise((resolve, reject) => {
+      const child = spawn(plan.command, plan.args, {
+        windowsHide: true,
+        shell: false,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      installProcess = child;
+      let output = "";
+      const collect = (chunk) => {
+        output = cleanInstallerOutput(output + chunk.toString()).slice(-8000);
+        emit("install", { target, status: "running", text: output });
+      };
+      child.stdout.on("data", collect);
+      child.stderr.on("data", collect);
+      const timer = setTimeout(() => child.kill(), 10 * 60 * 1000);
+      child.once("error", (error) => {
+        clearTimeout(timer);
+        installProcess = null;
+        reject(error);
+      });
+      child.once("close", (code) => {
+        clearTimeout(timer);
+        installProcess = null;
+        if (code === 0) resolve();
+        else reject(Error(output || `安装程序退出码：${code}`));
+      });
     });
-    return environment();
+    emit("install", { target, status: "verifying", text: "安装完成，正在重新检测…" });
+    const refreshed = await environment();
+    emit("install", {
+      target,
+      status: "success",
+      text: `${names[target]} 安装完成。`,
+    });
+    return refreshed;
   } catch (e) {
-    emit("install", { text: "安装失败：" + redact(e.message) });
-    throw Error("安装失败，请检查网络，或选择已安装的 claude.exe");
+    emit("install", {
+      target,
+      status: "error",
+      text: "安装失败：" + redact(e.message),
+      fallbackUrl: plan.manualUrl,
+    });
+    throw Error(`安装 ${names[target]} 失败，可改用官方下载入口`);
   }
+}
+async function installCli() {
+  return installDependency({ target: "claude" });
 }
 async function authLogin() {
   if (run) throw Error("任务运行中不能登录");
@@ -819,6 +906,8 @@ async function authLogin() {
   const cli = await findCli();
   if (!cli) throw Error("请先安装或选择 Claude Code");
   emit("install", {
+    target: "claude",
+    status: "auth",
     text: "正在打开 Claude 官方登录页面，请在浏览器中完成登录…",
   });
   return new Promise((resolve, reject) => {
@@ -831,7 +920,7 @@ async function authLogin() {
     let output = "";
     const collect = (chunk) => {
       output = redact(output + chunk.toString()).slice(-8000);
-      emit("install", { text: output });
+      emit("install", { target: "claude", status: "auth", text: output });
     };
     child.stdout.on("data", collect);
     child.stderr.on("data", collect);
@@ -845,7 +934,11 @@ async function authLogin() {
       clearTimeout(timer);
       authProcess = null;
       if (code !== 0) return reject(Error(output || "Claude 登录未完成"));
-      emit("install", { text: "Claude 登录完成。" });
+      emit("install", {
+        target: "claude",
+        status: "success",
+        text: "Claude 登录完成。",
+      });
       resolve(await environment());
     });
   });
@@ -853,6 +946,11 @@ async function authLogin() {
 const actions = {
   state: () => publicState(),
   environment,
+  markEnvironmentGuideSeen: () => {
+    state.settings.environmentGuideSeen = true;
+    update();
+    return { saved: true };
+  },
   pickFolder: async () => {
     const r = await dialog.showOpenDialog(win, {
       properties: ["openDirectory", "createDirectory"],
@@ -1047,6 +1145,12 @@ const actions = {
     return { ok: true };
   },
   installCli,
+  installDependency,
+  openDependencyDownload: (data) => {
+    const url = dependencyDownloadUrls[String(data.target || "")];
+    if (!url) throw Error("不支持的下载项目");
+    return shell.openExternal(url);
+  },
   authLogin,
   checkUpdate,
   searchSkills,
@@ -1095,18 +1199,24 @@ async function runDesktopSmoke(index) {
   };
   try {
     const first = await win.webContents.executeJavaScript(
-      `({ heading: document.body.innerText.includes('今天，一起做点什么？'), api: Boolean(window.board) })`,
+      `({ heading: document.body.innerText.includes('今天，一起做点什么？') || document.body.innerText.includes('首次使用检查'), api: Boolean(window.board) })`,
     );
     if (!first.heading || !first.api) fail("欢迎页或安全 IPC 桥未加载");
     const ui = await win.webContents.executeJavaScript(`(async () => {
       const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
       const button = text => [...document.querySelectorAll('button')].find(node => node.textContent.includes(text));
-      button('模型与服务商')?.click(); await wait(80);
+      button('模型与服务商')?.click(); await wait(180);
+      if (!document.querySelector('.provider-form')) {
+        button('模型与服务商')?.click(); await wait(120);
+      }
       if (!document.querySelector('.provider-form')) throw Error('服务商表单未显示');
       try {
         await window.board.invoke('saveProvider', { name: '本地测试服务', model: 'test-model', baseUrl: 'http://127.0.0.1:9999', authType: 'token', key: ${JSON.stringify(process.env.CCB_SMOKE_KEY || "")} });
       } catch (error) { throw Error('保存服务商失败：' + error.message); }
-      await wait(150);
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        if (document.body.innerText.includes('本地测试服务')) break;
+        await wait(100);
+      }
       let importResult = null;
       try {
         importResult = ${JSON.stringify(process.env.CCB_SMOKE_IMPORT === "1")} ? await window.board.invoke('importProviders') : null;
@@ -1156,9 +1266,14 @@ async function runDesktopSmoke(index) {
       fail("永久删除后会话仍然存在");
     persist();
     await win.loadFile(index);
-    await new Promise((resolve) => setTimeout(resolve, 150));
     const restored = await win.webContents.executeJavaScript(
-      `(async () => ({ history: document.body.innerText.includes('保存的中文历史'), state: await window.board.invoke('state') }))()`,
+      `(async () => {
+        for (let attempt = 0; attempt < 30; attempt += 1) {
+          if (document.body.innerText.includes('保存的中文历史')) break;
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        return { history: document.body.innerText.includes('保存的中文历史'), state: await window.board.invoke('state') };
+      })()`,
     );
     const loadedState = restored.state;
     if (
@@ -1187,15 +1302,27 @@ async function runDesktopSmoke(index) {
         await wait(40);
         document.querySelector('button[aria-label="发送消息"]')?.click();
         await wait(80);
-        const riskVisible = Boolean(document.querySelector('.risk-modal'));
-        document.querySelector('.risk-modal .secondary')?.click();
-        button('技能商场')?.click(); await wait(80);
-        return { marketVisible, officialVisible, commandFilled, riskVisible };
+        const riskVisible = Boolean(document.querySelector('.risk-panel'));
+        const riskCancel = document.querySelector('.risk-panel .secondary');
+        const riskRect = riskCancel?.getBoundingClientRect();
+        const riskPointerTarget = riskRect
+          ? document.elementFromPoint(riskRect.left + riskRect.width / 2, riskRect.top + riskRect.height / 2)
+          : null;
+        const riskClickable = Boolean(riskCancel && (riskPointerTarget === riskCancel || riskCancel.contains(riskPointerTarget)));
+        riskCancel?.click();
+        button('设置与环境')?.click(); await wait(120);
+        const setupVisible = document.body.innerText.includes('首次使用检查');
+        const nodeOptional = document.body.innerText.includes('安装版 cc-board 不依赖 Node.js');
+        const ccSwitchOptional = document.body.innerText.includes('CC Switch（可选）');
+        return { marketVisible, officialVisible, commandFilled, riskVisible, riskClickable, setupVisible, nodeOptional, ccSwitchOptional };
       })()`);
       if (!skillsUi.marketVisible || !skillsUi.officialVisible)
         fail("技能商场或 GitHub 搜索结果未显示");
       if (!skillsUi.commandFilled) fail("原生指令未填入消息框");
-      if (!skillsUi.riskVisible) fail("完全自动模式风险确认窗未显示");
+      if (!skillsUi.riskVisible) fail("完全自动模式风险确认区未显示");
+      if (!skillsUi.riskClickable) fail("完全自动模式风险确认区被其他界面遮挡");
+      if (!skillsUi.setupVisible || !skillsUi.nodeOptional || !skillsUi.ccSwitchOptional)
+        fail("首次使用环境检查或可选依赖说明未显示");
     }
     let nativeBridge = null;
     if (process.env.CCB_SMOKE_NATIVE === "1") {
@@ -1367,4 +1494,5 @@ app
 app.on("window-all-closed", () => app.quit());
 app.on("before-quit", () => {
   if (authProcess) authProcess.kill();
+  if (installProcess) installProcess.kill();
 });

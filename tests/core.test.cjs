@@ -9,6 +9,7 @@ const {
   skillSearchQuery,
   normalizeGitHubRepository,
   isSkillRepository,
+  installPlan,
 } = require("../electron/core.cjs");
 
 test("version comparison accepts release tags and ignores older releases", () => {
@@ -76,6 +77,19 @@ test("skill marketplace excludes repositories that only mention skills in a READ
     }),
     true,
   );
+});
+test("dependency installers use fixed official sources without shell interpolation", () => {
+  const git = installPlan("git", "C:\\Windows\\winget.exe");
+  assert.equal(git.command, "C:\\Windows\\winget.exe");
+  assert.ok(git.args.includes("Git.Git"));
+  assert.equal(git.args.includes("user input"), false);
+  const nodeFallback = installPlan("node", "");
+  assert.equal(nodeFallback.command, null);
+  assert.equal(nodeFallback.manualUrl, "https://nodejs.org/en/download");
+  const claude = installPlan("claude");
+  assert.equal(claude.command, "powershell.exe");
+  assert.match(claude.args.at(-1), /^irm https:\/\/claude\.ai\/install\.ps1/);
+  assert.throws(() => installPlan("unknown"));
 });
 test("stream framing survives fragmented UTF-8 and trailing lines", () => {
   const events = [],

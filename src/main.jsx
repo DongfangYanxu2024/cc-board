@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import "./style.css";
 import SkillsPage from "./SkillsPage.jsx";
+import SetupGuide from "./SetupGuide.jsx";
 
 const api = window.board;
 const modes = {
@@ -59,7 +60,11 @@ function App() {
     [notice, setNotice] = useState(""),
     [approvals, setApprovals] = useState([]),
     [busy, setBusy] = useState(false),
-    [installLog, setInstallLog] = useState("");
+    [installState, setInstallState] = useState({
+      target: null,
+      status: "idle",
+      text: "",
+    });
   const [showArchived, setArchived] = useState(false),
     [menu, setMenu] = useState(false),
     [rename, setRename] = useState(null),
@@ -100,16 +105,15 @@ function App() {
   }
   useEffect(() => {
     if (!api) return;
-    api
-      .invoke("state")
-      .then((s) => {
-        setState(s);
-        select(s.sessions.find((s) => !s.archived)?.id || null);
-      })
-      .catch((e) => setNotice(e.message));
-    call("environment").then(setEnv);
-    return api.subscribe((e) => {
-      if (e.type === "state") setState(e.state);
+    let receivedFreshState = false;
+    const unsubscribe = api.subscribe((e) => {
+      if (e.type === "state") {
+        receivedFreshState = true;
+        setState(e.state);
+        select((current) =>
+          current || e.state.sessions.find((item) => !item.archived)?.id || null,
+        );
+      }
       if (e.type === "approval") {
         setApprovals((a) => [
           ...a.filter((item) => item.requestId !== e.requestId),
@@ -121,8 +125,29 @@ function App() {
         setApprovals((a) => a.filter((x) => x.requestId !== e.requestId));
         setNotice((current) => (current.includes("需要批准") ? "" : current));
       }
-      if (e.type === "install") setInstallLog(e.text);
+      if (e.type === "install")
+        setInstallState({
+          target: e.target || "claude",
+          status: e.status || "running",
+          text: e.text || "",
+          fallbackUrl: e.fallbackUrl || null,
+        });
     });
+    Promise.all([api.invoke("state"), api.invoke("environment")])
+      .then(([s, result]) => {
+        if (!receivedFreshState) setState(s);
+        select((current) =>
+          current || s.sessions.find((item) => !item.archived)?.id || null,
+        );
+        setEnv(result);
+        if (!s.settings?.environmentGuideSeen || !result.cliPath) {
+          setView((current) => (current === "chat" ? "settings" : current));
+          if (!s.settings?.environmentGuideSeen)
+            void api.invoke("markEnvironmentGuideSeen");
+        }
+      })
+      .catch((e) => setNotice(e.message));
+    return unsubscribe;
   }, []);
   useEffect(() => {
     if (session) {
@@ -686,14 +711,53 @@ function App() {
                   </button>
                 </div>
               )}
+              {riskRequest !== null && (
+                <form
+                  className="risk-panel"
+                  aria-labelledby="risk-title"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    confirmBypass();
+                  }}
+                >
+                  <div className="risk-icon"><Shield size={24} /></div>
+                  <div>
+                    <div className="eyebrow">仅确认本次运行</div>
+                    <h2 id="risk-title">开启完全自动模式？</h2>
+                  </div>
+                  <p>
+                    Claude Code 将跳过逐项工具审批，可以执行命令、修改或删除文件并联网。
+                    工作文件夹不是安全沙箱，关闭或停止也不会撤销已经完成的操作。
+                  </p>
+                  <div className="risk-list">
+                    <span>可能造成数据丢失</span>
+                    <span>可能发送敏感信息</span>
+                    <span>可能产生额外费用</span>
+                  </div>
+                  <div className="button-row">
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => setRiskRequest(null)}
+                    >
+                      取消
+                    </button>
+                    <button className="danger-confirm" disabled={busy || running}>
+                      {busy ? "正在启动…" : "我了解风险，开启本次运行"}
+                    </button>
+                  </div>
+                </form>
+              )}
               <div className="composer">
                 <textarea
                   ref={input}
                   aria-label="消息输入框"
-                  disabled={runningElsewhere}
+                  disabled={runningElsewhere || Boolean(riskRequest)}
                   placeholder={
                     runningElsewhere
                       ? "另一个会话正在运行…"
+                      : riskRequest
+                        ? "请先确认或取消完全自动模式…"
                       : "描述你的想法，或提出一个问题…"
                   }
                   value={prompt}
@@ -714,7 +778,7 @@ function App() {
                     <Cable size={14} />
                     <select
                       aria-label="服务商"
-                      disabled={running}
+                      disabled={running || Boolean(riskRequest)}
                       value={providerId}
                       onChange={(e) => chooseProvider(e.target.value)}
                     >
@@ -732,7 +796,7 @@ function App() {
                     <Cpu size={14} />
                     <input
                       aria-label="模型"
-                      disabled={running}
+                      disabled={running || Boolean(riskRequest)}
                       list="model-options"
                       value={model}
                       placeholder="模型（默认）"
@@ -755,7 +819,7 @@ function App() {
                     <select
                       aria-label="权限模式"
                       value={mode}
-                      disabled={running}
+                      disabled={running || Boolean(riskRequest)}
                       onChange={(e) => changeMode(e.target.value)}
                     >
                       {Object.entries(modes).map(([k, v]) => (
@@ -781,7 +845,10 @@ function App() {
                           ? "查看运行中的会话"
                           : "发送消息"
                     }
-                    disabled={!running && (!prompt.trim() || busy)}
+                    disabled={
+                      !running &&
+                      (!prompt.trim() || busy || Boolean(riskRequest))
+                    }
                     onClick={
                       active
                         ? stop
@@ -1033,100 +1100,33 @@ function App() {
             <p className="page-desc">
               连接原版 Claude Code，让日常操作留在一个窗口里。
             </p>
-            <section className="settings-card">
-              <div className="section-heading">
-                <Terminal size={22} />
-                <div>
-                  <h2>Claude Code</h2>
-                  <p>
-                    {env?.version || "尚未检测到可运行的原生版本"}
-                    {env?.auth?.loggedIn
-                      ? ` · ${env.auth.email || "已登录 Claude"}`
-                      : env?.version
-                        ? " · 尚未登录官方账户（第三方服务商可忽略）"
-                        : ""}
-                  </p>
-                </div>
-                <span className={"badge " + (env?.version ? "green" : "")}>
-                  {env?.auth?.loggedIn
-                    ? "已登录"
-                    : env?.version
-                      ? "已安装"
-                      : "待配置"}
-                </span>
-              </div>
-              <code>
-                {env?.cliPath || "安装后会自动检测，也可以手动选择 claude.exe"}
-              </code>
-              <div className="button-row">
-                <button
-                  className="primary"
-                  disabled={busy}
-                  onClick={async () => {
-                    setBusy(true);
-                    try {
-                      const r = await call("installCli");
-                      if (r && !r.cancelled) setEnv(r);
-                    } finally {
-                      setBusy(false);
-                    }
-                  }}
-                >
-                  <Download size={15} /> 安装官方版本
-                </button>
-                <button
-                  className="secondary"
-                  onClick={async () => {
-                    const r = await call("pickCli");
-                    if (r) setEnv(r);
-                  }}
-                >
-                  选择 claude.exe
-                </button>
-                <button
-                  className="secondary"
-                  onClick={async () => {
-                    const r = await call("environment");
-                    if (r) setEnv(r);
-                  }}
-                >
-                  <RefreshCw size={15} /> 重新检测
-                </button>
-                {env?.version && !env?.auth?.loggedIn && (
-                  <button
-                    className="secondary"
-                    disabled={busy}
-                    onClick={async () => {
-                      setBusy(true);
-                      try {
-                        const result = await call("authLogin");
-                        if (result) setEnv(result);
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
-                  >
-                    <ArrowUpRight size={15} /> 登录 Claude
-                  </button>
-                )}
-              </div>
-              {installLog && <pre className="install-log">{installLog}</pre>}
-            </section>
+            <SetupGuide
+              env={env}
+              setEnv={setEnv}
+              call={call}
+              busy={busy}
+              setBusy={setBusy}
+              installState={installState}
+            />
             <section className="settings-card">
               <div className="section-heading">
                 <Cable size={22} />
                 <div>
-                  <h2>CC Switch</h2>
+                  <h2>CC Switch（可选）</h2>
                   <p>
                     {env?.ccSwitch
                       ? "已找到本机数据库，可导入已有服务商"
-                      : "未找到数据库，可手动配置服务商"}
+                      : "不是运行依赖；未安装时可直接使用原生配置或手动添加服务商"}
                   </p>
                 </div>
               </div>
-              <button className="secondary" onClick={importConfig}>
-                导入已有配置
-              </button>
+              {env?.ccSwitch ? (
+                <button className="secondary" onClick={importConfig}>
+                  导入已有配置
+                </button>
+              ) : (
+                <small className="muted-note">无需下载 CC Switch。</small>
+              )}
             </section>
             <section className="settings-card">
               <div className="section-heading">
@@ -1193,48 +1193,6 @@ function App() {
           >
             <X size={16} />
           </button>
-        </div>
-      )}
-      {riskRequest !== null && (
-        <div className="modal-overlay risk-overlay">
-          <form
-            className="modal risk-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="risk-title"
-            onSubmit={(event) => {
-              event.preventDefault();
-              confirmBypass();
-            }}
-          >
-            <div className="risk-icon"><Shield size={24} /></div>
-            <div>
-              <div className="eyebrow">仅确认本次运行</div>
-              <h2 id="risk-title">开启完全自动模式？</h2>
-            </div>
-            <p>
-              Claude Code 将跳过逐项工具审批，可以执行命令、修改或删除文件并联网。
-              工作文件夹不是安全沙箱，关闭或停止也不会撤销已经完成的操作。
-            </p>
-            <div className="risk-list">
-              <span>可能造成数据丢失</span>
-              <span>可能发送敏感信息</span>
-              <span>可能产生额外费用</span>
-            </div>
-            <div className="button-row">
-              <button
-                autoFocus
-                type="button"
-                className="secondary"
-                onClick={() => setRiskRequest(null)}
-              >
-                取消
-              </button>
-              <button className="danger-confirm" disabled={busy || running}>
-                {busy ? "正在启动…" : "我了解风险，开启本次运行"}
-              </button>
-            </div>
-          </form>
         </div>
       )}
       {rename !== null && (

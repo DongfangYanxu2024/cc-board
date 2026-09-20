@@ -61,6 +61,10 @@ async function main() {
   assert.equal(result.skillsUi?.officialVisible, true);
   assert.equal(result.skillsUi?.commandFilled, true);
   assert.equal(result.skillsUi?.riskVisible, true);
+  assert.equal(result.skillsUi?.riskClickable, true);
+  assert.equal(result.skillsUi?.setupVisible, true);
+  assert.equal(result.skillsUi?.nodeOptional, true);
+  assert.equal(result.skillsUi?.ccSwitchOptional, true);
   assert.ok(fs.existsSync(output.replace(/\.json$/, ".png")), "未生成界面截图");
   console.log(
     "Desktop smoke passed: Electron launch, renderer, IPC, provider state, history reload, graceful exit.",

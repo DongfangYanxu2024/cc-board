@@ -86,5 +86,44 @@ function isSkillRepository(repo) {
     .replace(/[_-]/g, " ");
   return /\bskills?\b/i.test(text);
 }
+const dependencyDownloadUrls = {
+  claude: "https://code.claude.com/docs/en/setup",
+  git: "https://git-scm.com/install/windows",
+  node: "https://nodejs.org/en/download",
+};
+function installPlan(target, wingetPath = "") {
+  if (!Object.hasOwn(dependencyDownloadUrls, target))
+    throw Error("不支持的安装项目");
+  if (target === "claude")
+    return {
+      command: "powershell.exe",
+      args: [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "irm https://claude.ai/install.ps1 | iex",
+      ],
+      manualUrl: dependencyDownloadUrls.claude,
+    };
+  if (!wingetPath)
+    return { command: null, args: [], manualUrl: dependencyDownloadUrls[target] };
+  const packageId = target === "git" ? "Git.Git" : "OpenJS.NodeJS.LTS";
+  return {
+    command: wingetPath,
+    args: [
+      "install",
+      "--id",
+      packageId,
+      "-e",
+      "--source",
+      "winget",
+      "--accept-package-agreements",
+      "--accept-source-agreements",
+      "--silent",
+    ],
+    manualUrl: dependencyDownloadUrls[target],
+  };
+}
 function id() { return randomUUID(); }
-module.exports = { lineDecoder, argumentsFor, normalize, MODES, providerEnv, isNewerVersion, skillSearchQuery, normalizeGitHubRepository, isSkillRepository, id };
+module.exports = { lineDecoder, argumentsFor, normalize, MODES, providerEnv, isNewerVersion, skillSearchQuery, normalizeGitHubRepository, isSkillRepository, dependencyDownloadUrls, installPlan, id };
