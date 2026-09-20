@@ -2,7 +2,7 @@
 
 cc-board 是一个面向 Claude Code 新用户的 Windows 图形界面。它不重写智能体，也不代理终端输出：任务仍由本机安装的原版 Claude Code 执行，cc-board 负责把流式对话、工具调用、权限请求和历史记录映射到统一界面。
 
-> 当前版本为 `0.3.1` 预览版。建议先在测试项目中使用并保留重要文件的版本控制或备份。
+> 当前版本为 `0.3.2` 预览版。建议先在测试项目中使用并保留重要文件的版本控制或备份。
 
 ## 已实现
 
@@ -18,12 +18,13 @@ cc-board 是一个面向 Claude Code 新用户的 Windows 图形界面。它不�
 - 在设置页显示当前版本、检查 GitHub 新版本并打开下载页面。
 - 对话置顶、同一工作文件夹快速新建对话，以及带确认的永久删除。
 - 一键复制用户或 Claude Code 的消息内容。
-- 技能商场：可检索 GitHub 高 Star skill 仓库、识别 Anthropic 官方来源并直接查看仓库。
-- 常用原生指令入口：`/init`、`/plan`、`/review`、`/security-review`、`/compact`、`/doctor`。
+- 技能商场：可检索 GitHub 高 Star skill 仓库、识别 Anthropic 官方来源，并一键安装到 Claude Code 的个人 Skills 目录。
+- 输入栏原生指令入口：`/init`、`/plan`、`/review`、`/security-review`、`/compact`、`/doctor`。
+- 模型、服务商、权限及危险操作全部使用页面内选项和确认条，避免系统弹窗导致鼠标失灵。
 
 ## 安装和首次使用
 
-1. 从 GitHub Releases 下载 `cc-board-Setup-0.3.1.exe` 并安装。
+1. 从 GitHub Releases 下载 `cc-board-Setup-0.3.2.exe` 并安装。
 2. 首次启动会自动打开“设置与环境”并检查 Claude Code、Git、Node.js 和 WinGet。缺少 Claude Code 时可一键安装；Git 为推荐组件；Node.js 只在源码开发时需要。
 3. 使用 Anthropic 官方账户时点击“登录 Claude”，在浏览器完成登录。使用兼容服务商时可跳过官方登录。
 4. 打开“模型与服务商”，点击“导入 CC Switch”，或手动添加兼容 Anthropic Messages 协议的服务商。

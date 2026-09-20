@@ -2,7 +2,9 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   ArrowUpRight,
   BookOpen,
+  Check,
   Command,
+  Download,
   Github,
   LoaderCircle,
   Search,
@@ -11,7 +13,7 @@ import {
   Star,
 } from "lucide-react";
 
-const commands = [
+export const nativeCommands = [
   {
     name: "/init",
     title: "建立项目记忆",
@@ -49,12 +51,14 @@ const number = new Intl.NumberFormat("zh-CN", {
   maximumFractionDigits: 1,
 });
 
-export default function SkillsPage({ call, useCommand }) {
+export default function SkillsPage({ call, useCommand, installedSkillRepos = {} }) {
   const [query, setQuery] = useState("");
   const [minimumStars, setMinimumStars] = useState(100);
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searched, setSearched] = useState("");
+  const [installing, setInstalling] = useState(null);
+  const [installResults, setInstallResults] = useState({});
 
   async function search(nextQuery = query, nextStars = minimumStars) {
     setLoading(true);
@@ -75,6 +79,18 @@ export default function SkillsPage({ call, useCommand }) {
   useEffect(() => {
     search("", 100);
   }, []);
+
+  async function install(repo) {
+    setInstalling(repo.fullName);
+    try {
+      const result = await call("installSkillRepository", {
+        fullName: repo.fullName,
+      });
+      if (result) setInstallResults((current) => ({ ...current, [repo.fullName]: result }));
+    } finally {
+      setInstalling(null);
+    }
+  }
 
   const ordered = useMemo(
     () =>
@@ -113,7 +129,7 @@ export default function SkillsPage({ call, useCommand }) {
           <span className="badge green">随 Claude Code 提供</span>
         </div>
         <div className="command-grid">
-          {commands.map((item) => (
+          {nativeCommands.map((item) => (
             <button
               className="command-card"
               key={item.name}
@@ -162,16 +178,23 @@ export default function SkillsPage({ call, useCommand }) {
               maxLength={80}
             />
           </label>
-          <select
-            aria-label="最低 Star 数"
-            value={minimumStars}
-            onChange={(event) => setMinimumStars(Number(event.target.value))}
-          >
-            <option value={0}>不限 Star</option>
-            <option value={100}>100+ Stars</option>
-            <option value={1000}>1k+ Stars</option>
-            <option value={10000}>10k+ Stars</option>
-          </select>
+          <div className="star-filters" aria-label="最低 Star 数">
+            {[
+              [0, "不限"],
+              [100, "100+"],
+              [1000, "1k+"],
+              [10000, "10k+"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={minimumStars === value ? "selected" : ""}
+                onClick={() => setMinimumStars(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <button className="primary" disabled={loading}>
             {loading ? <LoaderCircle className="spin" size={15} /> : <Search size={15} />}
             {loading ? "搜索中" : "搜索 GitHub"}
@@ -208,13 +231,46 @@ export default function SkillsPage({ call, useCommand }) {
                       <span key={topic}>{topic}</span>
                     ))}
                   </div>
-                  <button
-                    className="secondary"
-                    onClick={() => call("openGitHub", { url: repo.url })}
-                  >
-                    在 GitHub 查看 <ArrowUpRight size={14} />
-                  </button>
+                  <div className="skill-card-actions">
+                    <button
+                      className="primary"
+                      disabled={
+                        installing === repo.fullName ||
+                        Boolean(installedSkillRepos[repo.fullName]) ||
+                        Boolean(installResults[repo.fullName])
+                      }
+                      onClick={() => install(repo)}
+                    >
+                      {installing === repo.fullName ? (
+                        <LoaderCircle className="spin" size={14} />
+                      ) : installedSkillRepos[repo.fullName] || installResults[repo.fullName] ? (
+                        <Check size={14} />
+                      ) : (
+                        <Download size={14} />
+                      )}
+                      {installing === repo.fullName
+                        ? "安装中"
+                        : installedSkillRepos[repo.fullName] || installResults[repo.fullName]
+                          ? "已安装"
+                          : "一键安装"}
+                    </button>
+                    <button
+                      className="secondary"
+                      onClick={() => call("openGitHub", { url: repo.url })}
+                    >
+                      查看 <ArrowUpRight size={14} />
+                    </button>
+                  </div>
                 </div>
+                {installResults[repo.fullName] && (
+                  <small className="skill-install-result">
+                    已安装 {installResults[repo.fullName].installed} 个 Skill
+                    {installResults[repo.fullName].skipped
+                      ? `，跳过 ${installResults[repo.fullName].skipped} 个已有目录`
+                      : ""}
+                    。下次运行中生效。
+                  </small>
+                )}
               </article>
             ))}
           </div>
@@ -226,7 +282,7 @@ export default function SkillsPage({ call, useCommand }) {
           </div>
         )}
         <p className="market-note">
-          Star 仅代表社区关注度，不等于安全审核。第三方 Skill 可能包含脚本、工具权限或外部服务，使用前请查看 SKILL.md、许可证和最近更新。
+          Star 仅代表社区关注度，不等于安全审核。一键安装只复制仓库中的 SKILL.md 及同目录资源，不执行仓库脚本；第三方 Skill 仍可能指导 Claude 使用工具或外部服务，安装前请先查看内容。
         </p>
       </section>
     </div>

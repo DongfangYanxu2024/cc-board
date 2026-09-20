@@ -32,9 +32,10 @@ import {
   Trash2,
   FolderPlus,
   Store,
+  Command,
 } from "lucide-react";
 import "./style.css";
-import SkillsPage from "./SkillsPage.jsx";
+import SkillsPage, { nativeCommands } from "./SkillsPage.jsx";
 import SetupGuide from "./SetupGuide.jsx";
 
 const api = window.board;
@@ -68,7 +69,9 @@ function App() {
   const [showArchived, setArchived] = useState(false),
     [menu, setMenu] = useState(false),
     [rename, setRename] = useState(null),
-    [riskRequest, setRiskRequest] = useState(null);
+    [riskRequest, setRiskRequest] = useState(null),
+    [pendingAction, setPendingAction] = useState(null),
+    [composerMenu, setComposerMenu] = useState(null);
   const [form, setForm] = useState({
     name: "",
     baseUrl: "",
@@ -132,6 +135,14 @@ function App() {
           text: e.text || "",
           fallbackUrl: e.fallbackUrl || null,
         });
+      if (e.type === "exitRequested")
+        setPendingAction({
+          kind: "exit",
+          title: "停止当前任务并退出？",
+          detail: "已经执行的文件操作不会自动撤销。",
+          confirmLabel: "停止并退出",
+          danger: true,
+        });
     });
     Promise.all([api.invoke("state"), api.invoke("environment")])
       .then(([s, result]) => {
@@ -170,16 +181,24 @@ function App() {
     return () => clearTimeout(t);
   }, [notice]);
   useEffect(() => {
-    if (rename === null && riskRequest === null) return;
+    if (
+      rename === null &&
+      riskRequest === null &&
+      pendingAction === null &&
+      composerMenu === null
+    )
+      return;
     const close = (event) => {
       if (event.key === "Escape") {
         setRename(null);
         setRiskRequest(null);
+        setPendingAction(null);
+        setComposerMenu(null);
       }
     };
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
-  }, [rename, riskRequest]);
+  }, [rename, riskRequest, pendingAction, composerMenu]);
   useEffect(() => {
     if (!menu) return;
     const close = (event) => {
@@ -229,7 +248,7 @@ function App() {
         return;
       }
       const result = await call("start", request);
-      if (result?.started) setPrompt("");
+      handleStartResult(result, request);
     } finally {
       setBusy(false);
     }
@@ -242,7 +261,17 @@ function App() {
         ...riskRequest,
         bypassConfirmed: true,
       });
-      if (result?.started) {
+      if (result?.needsProviderConfirmation) {
+        setPendingAction({
+          kind: "providerSwitch",
+          title: "切换服务商并继续此会话？",
+          detail:
+            "历史对话和工作内容可能发送给新服务商。协议不兼容时建议新建会话。",
+          confirmLabel: "继续本次运行",
+          data: { ...riskRequest, bypassConfirmed: true },
+        });
+        setRiskRequest(null);
+      } else if (result?.started) {
         setPrompt("");
         setRiskRequest(null);
       }
@@ -252,8 +281,82 @@ function App() {
   }
   function useCommand(command) {
     setPrompt(command + " ");
+    setComposerMenu(null);
     setView("chat");
     setTimeout(() => input.current?.focus(), 0);
+  }
+  function handleStartResult(result, request) {
+    if (result?.needsProviderConfirmation) {
+      setPendingAction({
+        kind: "providerSwitch",
+        title: "切换服务商并继续此会话？",
+        detail:
+          "历史对话和工作内容可能发送给新服务商。协议不兼容时建议新建会话。",
+        confirmLabel: "继续本次运行",
+        data: request,
+      });
+    } else if (result?.started) {
+      setPrompt("");
+    }
+  }
+  async function confirmPendingAction() {
+    const action = pendingAction;
+    if (!action || busy) return;
+    setBusy(true);
+    try {
+      let result = null;
+      if (action.kind === "providerSwitch") {
+        result = await call("start", {
+          ...action.data,
+          providerSwitchConfirmed: true,
+        });
+        if (result?.started) setPrompt("");
+      } else if (action.kind === "deleteSession") {
+        result = await call("deleteSession", {
+          id: action.data.id,
+          confirmed: true,
+        });
+        if (result?.deleted) {
+          select(action.data.nextId || null);
+          setNotice("对话已从 cc-board 中永久删除。");
+        }
+      } else if (action.kind === "clearProviderKey") {
+        result = await call("clearProviderKey", {
+          id: action.data.id,
+          confirmed: true,
+        });
+        if (result?.cleared) setNotice("保存的密钥已清除。");
+      } else if (action.kind === "deleteProvider") {
+        result = await call("deleteProvider", {
+          id: action.data.id,
+          confirmed: true,
+        });
+        if (result?.deleted) {
+          if (providerId === action.data.id) chooseProvider("native");
+          if (form.id === action.data.id)
+            setForm({
+              name: "",
+              baseUrl: "",
+              key: "",
+              model: "",
+              authType: "token",
+            });
+          setNotice("服务商已删除。");
+        }
+      } else if (action.kind === "testProvider") {
+        result = await call("testProvider", {
+          id: action.data.id,
+          confirmed: true,
+        });
+        if (result?.ok)
+          setNotice("基础连接测试通过；工具调用兼容性需实际任务验证。");
+      } else if (action.kind === "exit") {
+        await call("confirmExit");
+      }
+      if (result !== null || action.kind === "exit") setPendingAction(null);
+    } finally {
+      setBusy(false);
+    }
   }
   async function stop() {
     await call("stop");
@@ -292,12 +395,16 @@ function App() {
   async function deleteCurrent() {
     const currentId = selected;
     const next = visibleSessions.find((item) => item.id !== currentId);
-    const result = await call("deleteSession", { id: currentId });
     setMenu(false);
-    if (result?.deleted) {
-      select(next?.id || null);
-      setNotice("对话已从 cc-board 中永久删除。");
-    }
+    setPendingAction({
+      kind: "deleteSession",
+      title: `永久删除“${session?.title || "当前对话"}”？`,
+      detail:
+        "消息、用量和会话关联将从 cc-board 删除且无法恢复。工作目录中的文件不会被删除。",
+      confirmLabel: "永久删除",
+      danger: true,
+      data: { id: currentId, nextId: next?.id || null },
+    });
   }
   async function copyMessage(messageId) {
     const result = await call("copyMessage", {
@@ -566,6 +673,62 @@ function App() {
             )}
           </div>
         </header>
+        {pendingAction && (
+          <section className="inline-confirm" aria-labelledby="confirm-title">
+            <Shield size={20} />
+            <div>
+              <strong id="confirm-title">{pendingAction.title}</strong>
+              <p>{pendingAction.detail}</p>
+            </div>
+            <div className="button-row">
+              <button
+                className="secondary"
+                disabled={busy}
+                onClick={() => setPendingAction(null)}
+              >
+                取消
+              </button>
+              <button
+                className={pendingAction.danger ? "danger-confirm" : "primary"}
+                disabled={busy}
+                onClick={confirmPendingAction}
+              >
+                {busy ? "处理中…" : pendingAction.confirmLabel}
+              </button>
+            </div>
+          </section>
+        )}
+        {rename !== null && (
+          <form
+            className="inline-confirm rename-inline"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              await call("renameSession", { id: selected, title: rename });
+              setRename(null);
+            }}
+          >
+            <Pencil size={20} />
+            <label>
+              <strong>重命名对话</strong>
+              <input
+                aria-label="对话名称"
+                value={rename}
+                onChange={(event) => setRename(event.target.value)}
+                maxLength={80}
+              />
+            </label>
+            <div className="button-row">
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setRename(null)}
+              >
+                取消
+              </button>
+              <button className="primary">保存</button>
+            </div>
+          </form>
+        )}
         {view === "chat" ? (
           <>
             <div
@@ -749,10 +912,98 @@ function App() {
                 </form>
               )}
               <div className="composer">
+                {composerMenu && (
+                  <div className="composer-options" aria-live="polite">
+                    {composerMenu === "provider" && (
+                      <>
+                        <span>选择服务商</span>
+                        <button
+                          className={providerId === "native" ? "selected" : ""}
+                          onClick={() => {
+                            chooseProvider("native");
+                            setComposerMenu(null);
+                          }}
+                        >
+                          原生配置
+                        </button>
+                        {state.providers.map((item) => (
+                          <button
+                            key={item.id}
+                            className={providerId === item.id ? "selected" : ""}
+                            onClick={() => {
+                              chooseProvider(item.id);
+                              setComposerMenu(null);
+                            }}
+                          >
+                            {item.name}
+                          </button>
+                        ))}
+                      </>
+                    )}
+                    {composerMenu === "model" && (
+                      <>
+                        <span>选择或输入模型</span>
+                        {["", "sonnet", "opus", "haiku"].map((item) => (
+                          <button
+                            key={item || "default"}
+                            className={model === item ? "selected" : ""}
+                            onClick={() => {
+                              setModel(item);
+                              setComposerMenu(null);
+                            }}
+                          >
+                            {item || "默认"}
+                          </button>
+                        ))}
+                        <input
+                          aria-label="自定义模型 ID"
+                          value={model}
+                          placeholder="自定义模型 ID"
+                          onChange={(event) => setModel(event.target.value)}
+                          maxLength={200}
+                        />
+                        <button onClick={() => setComposerMenu(null)}>完成</button>
+                      </>
+                    )}
+                    {composerMenu === "mode" && (
+                      <>
+                        <span>选择权限模式</span>
+                        {Object.entries(modes).map(([key, label]) => (
+                          <button
+                            key={key}
+                            className={mode === key ? "selected" : ""}
+                            onClick={() => {
+                              changeMode(key);
+                              setComposerMenu(null);
+                            }}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </>
+                    )}
+                    {composerMenu === "commands" && (
+                      <>
+                        <span>原生指令</span>
+                        {nativeCommands.map((item) => (
+                          <button
+                            key={item.name}
+                            title={item.description}
+                            onClick={() => useCommand(item.name)}
+                          >
+                            <code>{item.name}</code> {item.title}
+                          </button>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                )}
                 <textarea
                   ref={input}
                   aria-label="消息输入框"
-                  disabled={runningElsewhere || Boolean(riskRequest)}
+                  disabled={
+                    runningElsewhere || Boolean(riskRequest) || Boolean(pendingAction)
+                  }
                   placeholder={
                     runningElsewhere
                       ? "另一个会话正在运行…"
@@ -774,61 +1025,69 @@ function App() {
                   }}
                 />
                 <div className="composer-tools">
-                  <div className="select-chip">
+                  <button
+                    className="select-chip"
+                    aria-label="服务商"
+                    aria-expanded={composerMenu === "provider"}
+                    disabled={running || Boolean(riskRequest) || Boolean(pendingAction)}
+                    onClick={() =>
+                      setComposerMenu((current) =>
+                        current === "provider" ? null : "provider",
+                      )
+                    }
+                  >
                     <Cable size={14} />
-                    <select
-                      aria-label="服务商"
-                      disabled={running || Boolean(riskRequest)}
-                      value={providerId}
-                      onChange={(e) => chooseProvider(e.target.value)}
-                    >
-                      <option value="native">
-                        原生配置 / CC Switch 当前配置
-                      </option>
-                      {state.providers.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="select-chip model-chip">
+                    <span>{profile?.name || "原生配置"}</span>
+                    <ChevronDown size={12} />
+                  </button>
+                  <button
+                    className="select-chip model-chip"
+                    aria-label="模型"
+                    aria-expanded={composerMenu === "model"}
+                    disabled={running || Boolean(riskRequest) || Boolean(pendingAction)}
+                    onClick={() =>
+                      setComposerMenu((current) =>
+                        current === "model" ? null : "model",
+                      )
+                    }
+                  >
                     <Cpu size={14} />
-                    <input
-                      aria-label="模型"
-                      disabled={running || Boolean(riskRequest)}
-                      list="model-options"
-                      value={model}
-                      placeholder="模型（默认）"
-                      onChange={(e) => setModel(e.target.value)}
-                      maxLength={200}
-                    />
-                    <datalist id="model-options">
-                      <option value="sonnet" />
-                      <option value="opus" />
-                      <option value="haiku" />
-                    </datalist>
-                  </div>
-                  <div
+                    <span>{model || "模型（默认）"}</span>
+                    <ChevronDown size={12} />
+                  </button>
+                  <button
                     className={
                       "select-chip permission " +
                       (mode === "bypassPermissions" ? "danger" : "")
                     }
+                    aria-label="权限模式"
+                    aria-expanded={composerMenu === "mode"}
+                    disabled={running || Boolean(riskRequest) || Boolean(pendingAction)}
+                    onClick={() =>
+                      setComposerMenu((current) =>
+                        current === "mode" ? null : "mode",
+                      )
+                    }
                   >
                     <Shield size={14} />
-                    <select
-                      aria-label="权限模式"
-                      value={mode}
-                      disabled={running || Boolean(riskRequest)}
-                      onChange={(e) => changeMode(e.target.value)}
-                    >
-                      {Object.entries(modes).map(([k, v]) => (
-                        <option key={k} value={k}>
-                          {v}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                    <span>{modes[mode]}</span>
+                    <ChevronDown size={12} />
+                  </button>
+                  <button
+                    className="select-chip command-chip"
+                    aria-label="原生指令"
+                    aria-expanded={composerMenu === "commands"}
+                    disabled={running || Boolean(riskRequest) || Boolean(pendingAction)}
+                    onClick={() =>
+                      setComposerMenu((current) =>
+                        current === "commands" ? null : "commands",
+                      )
+                    }
+                  >
+                    <Command size={14} />
+                    <span>指令</span>
+                    <ChevronDown size={12} />
+                  </button>
                   <button
                     className={"send " + (active ? "stop" : "")}
                     aria-label={
@@ -847,7 +1106,10 @@ function App() {
                     }
                     disabled={
                       !running &&
-                      (!prompt.trim() || busy || Boolean(riskRequest))
+                      (!prompt.trim() ||
+                        busy ||
+                        Boolean(riskRequest) ||
+                        Boolean(pendingAction))
                     }
                     onClick={
                       active
@@ -942,12 +1204,15 @@ function App() {
                   </div>
                   <button
                     className="text-button"
-                    onClick={async () => {
-                      const r = await call("testProvider", { id: p.id });
-                      if (r?.ok)
-                        setNotice(
-                          "基础连接测试通过；工具调用兼容性需实际任务验证。",
-                        );
+                    onClick={() => {
+                      setPendingAction({
+                        kind: "testProvider",
+                        title: `测试“${p.name}”的连接？`,
+                        detail:
+                          "将发送一条最小测试消息，可能产生少量费用。仅验证基础消息接口。",
+                        confirmLabel: "发送测试",
+                        data: { id: p.id },
+                      });
                     }}
                   >
                     测试
@@ -961,11 +1226,16 @@ function App() {
                   {p.hasKey && (
                     <button
                       className="text-button"
-                      onClick={async () => {
-                        const result = await call("clearProviderKey", {
-                          id: p.id,
+                      onClick={() => {
+                        setPendingAction({
+                          kind: "clearProviderKey",
+                          title: `清除“${p.name}”保存的密钥？`,
+                          detail:
+                            "只会清除 cc-board 中的加密副本，不会修改 CC Switch。",
+                          confirmLabel: "清除密钥",
+                          danger: true,
+                          data: { id: p.id },
                         });
-                        if (result?.cleared) setNotice("保存的密钥已清除。");
                       }}
                     >
                       清除密钥
@@ -973,19 +1243,16 @@ function App() {
                   )}
                   <button
                     className="text-button danger"
-                    onClick={async () => {
-                      const result = await call("deleteProvider", { id: p.id });
-                      if (result?.deleted) {
-                        if (providerId === p.id) chooseProvider("native");
-                        if (form.id === p.id)
-                          setForm({
-                            name: "",
-                            baseUrl: "",
-                            key: "",
-                            model: "",
-                            authType: "token",
-                          });
-                      }
+                    onClick={() => {
+                      setPendingAction({
+                        kind: "deleteProvider",
+                        title: `删除“${p.name}”？`,
+                        detail:
+                          "只删除 cc-board 中的配置，历史记录会保留；导入的配置以后仍可再次导入。",
+                        confirmLabel: "删除服务商",
+                        danger: true,
+                        data: { id: p.id },
+                      });
                     }}
                   >
                     删除
@@ -1051,15 +1318,22 @@ function App() {
                 </label>
                 <label>
                   认证方式
-                  <select
-                    value={form.authType}
-                    onChange={(e) =>
-                      setForm({ ...form, authType: e.target.value })
-                    }
-                  >
-                    <option value="token">Bearer Token</option>
-                    <option value="apiKey">x-api-key</option>
-                  </select>
+                  <span className="segmented-field">
+                    <button
+                      type="button"
+                      className={form.authType === "token" ? "selected" : ""}
+                      onClick={() => setForm({ ...form, authType: "token" })}
+                    >
+                      Bearer Token
+                    </button>
+                    <button
+                      type="button"
+                      className={form.authType === "apiKey" ? "selected" : ""}
+                      onClick={() => setForm({ ...form, authType: "apiKey" })}
+                    >
+                      x-api-key
+                    </button>
+                  </span>
                 </label>
               </div>
               <div className="form-footer">
@@ -1092,7 +1366,11 @@ function App() {
             </form>
           </div>
         ) : view === "skills" ? (
-          <SkillsPage call={call} useCommand={useCommand} />
+          <SkillsPage
+            call={call}
+            useCommand={useCommand}
+            installedSkillRepos={state.settings?.installedSkillRepos}
+          />
         ) : (
           <div className="page">
             <div className="eyebrow">为第一次使用做好准备</div>
@@ -1193,43 +1471,6 @@ function App() {
           >
             <X size={16} />
           </button>
-        </div>
-      )}
-      {rename !== null && (
-        <div className="modal-overlay">
-          <form
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="rename-title"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              await call("renameSession", { id: selected, title: rename });
-              setRename(null);
-            }}
-          >
-            <h2 id="rename-title">重命名对话</h2>
-            <label>
-              对话名称
-              <input
-                aria-label="对话名称"
-                autoFocus
-                value={rename}
-                onChange={(e) => setRename(e.target.value)}
-                maxLength={80}
-              />
-            </label>
-            <div className="button-row">
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => setRename(null)}
-              >
-                取消
-              </button>
-              <button className="primary">保存</button>
-            </div>
-          </form>
         </div>
       )}
     </div>

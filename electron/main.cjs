@@ -415,6 +415,162 @@ async function searchSkills(data = {}) {
   skillSearchCache.set(cacheKey, { time: Date.now(), value });
   return value;
 }
+function safeSkillRepository(value) {
+  const fullName = String(value || "").trim();
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(fullName))
+    throw Error("Skill 仓库地址无效");
+  return fullName;
+}
+function safeSkillName(value) {
+  return (
+    String(value || "skill")
+      .normalize("NFKC")
+      .replace(/[^A-Za-z0-9_-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80) || "skill"
+  );
+}
+function collectSkillFolders(root) {
+  const found = [];
+  const walk = (current, depth = 0) => {
+    if (depth > 8 || found.length >= 40) return;
+    let entries;
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    if (entries.some((entry) => entry.isFile() && entry.name === "SKILL.md"))
+      found.push(current);
+    for (const entry of entries) {
+      if (
+        entry.isDirectory() &&
+        ![".git", "node_modules", "vendor", "dist", "build"].includes(entry.name)
+      )
+        walk(path.join(current, entry.name), depth + 1);
+    }
+  };
+  walk(root);
+  return found;
+}
+function copySkillFolder(source, target) {
+  let files = 0;
+  let bytes = 0;
+  const allowed = (item) => {
+    const stat = fs.lstatSync(item);
+    if (stat.isSymbolicLink()) return false;
+    if (stat.isFile()) {
+      files += 1;
+      bytes += stat.size;
+      if (files > 200 || bytes > 5 * 1024 * 1024)
+        throw Error("单个 Skill 文件过多或体积超过 5 MB");
+    }
+    return stat.isDirectory() || stat.isFile();
+  };
+  fs.cpSync(source, target, {
+    recursive: true,
+    errorOnExist: true,
+    force: false,
+    filter: allowed,
+  });
+}
+async function installSkillRepository(data = {}) {
+  const fullName = safeSkillRepository(data.fullName);
+  const repo = await githubJson(`https://api.github.com/repos/${fullName}`);
+  const branch = String(repo.default_branch || "main");
+  if (!/^[A-Za-z0-9._\/-]+$/.test(branch)) throw Error("仓库默认分支名称无效");
+  const branchPath = branch.split("/").map(encodeURIComponent).join("/");
+  let response;
+  try {
+    response = await fetch(
+      `https://codeload.github.com/${fullName}/zip/refs/heads/${branchPath}`,
+      {
+        headers: { "user-agent": `cc-board/${app.getVersion()}` },
+        signal: AbortSignal.timeout(60000),
+      },
+    );
+  } catch {
+    throw Error("无法下载 Skill 仓库，请检查网络后重试");
+  }
+  if (!response.ok) throw Error(`Skill 仓库下载失败：HTTP ${response.status}`);
+  const declaredSize = Number(response.headers.get("content-length") || 0);
+  if (declaredSize > 50 * 1024 * 1024)
+    throw Error("仓库压缩包超过 50 MB，已停止安装");
+  const archive = Buffer.from(await response.arrayBuffer());
+  if (archive.length > 50 * 1024 * 1024)
+    throw Error("仓库压缩包超过 50 MB，已停止安装");
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "cc-board-skill-"));
+  const zip = path.join(temporary, "repository.zip");
+  const extracted = path.join(temporary, "extracted");
+  try {
+    fs.writeFileSync(zip, archive);
+    await exec(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-Command",
+        "Add-Type -AssemblyName System.IO.Compression.FileSystem; $archive = [IO.Compression.ZipFile]::OpenRead($args[0]); try { if ($archive.Entries.Count -gt 5000) { throw '仓库文件数量超过限制' }; $total = ($archive.Entries | Measure-Object -Property Length -Sum).Sum; if ($total -gt 104857600) { throw '仓库解压后超过 100 MB' } } finally { $archive.Dispose() }; Expand-Archive -LiteralPath $args[0] -DestinationPath $args[1] -Force",
+        zip,
+        extracted,
+      ],
+      { windowsHide: true, timeout: 120000 },
+    );
+    const roots = fs
+      .readdirSync(extracted, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => path.join(extracted, entry.name));
+    if (roots.length !== 1) throw Error("无法识别仓库内容");
+    const folders = collectSkillFolders(roots[0]);
+    if (!folders.length) throw Error("仓库中没有找到 SKILL.md");
+    const [owner, repository] = fullName.split("/");
+    const skillsRoot = path.join(home, ".claude", "skills");
+    fs.mkdirSync(skillsRoot, { recursive: true });
+    let installed = 0;
+    let skipped = 0;
+    for (const folder of folders) {
+      const relativeName = path.relative(roots[0], folder).split(path.sep).join("-");
+      const name = [
+        "ccboard",
+        safeSkillName(owner),
+        safeSkillName(repository),
+        safeSkillName(relativeName || path.basename(folder)),
+      ].join("-");
+      const target = path.join(skillsRoot, name);
+      if (fs.existsSync(target)) {
+        skipped += 1;
+        continue;
+      }
+      const staging = path.join(skillsRoot, `.cc-board-install-${id()}`);
+      try {
+        copySkillFolder(folder, staging);
+        fs.writeFileSync(
+          path.join(staging, ".cc-board-source.json"),
+          JSON.stringify(
+            { repository: fullName, branch, installedAt: Date.now() },
+            null,
+            2,
+          ),
+        );
+        fs.renameSync(staging, target);
+      } finally {
+        if (fs.existsSync(staging))
+          fs.rmSync(staging, { recursive: true, force: true });
+      }
+      installed += 1;
+    }
+    state.settings.installedSkillRepos ||= {};
+    state.settings.installedSkillRepos[fullName] = {
+      installedAt: Date.now(),
+      installed,
+      skipped,
+    };
+    update();
+    persist();
+    return { installed, skipped, total: folders.length, fullName };
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+}
 function safeUrl(value) {
   const u = new URL(value);
   if (
@@ -631,18 +787,13 @@ async function startRun(data) {
   const profile = state.providers.find((p) => p.id === data.providerId);
   if (data.providerId !== "native" && !profile) throw Error("服务商不存在");
   if (s.claudeSessionId && s.providerId && s.providerId !== data.providerId) {
-    const answer = await dialog.showMessageBox(win, {
-      type: "warning",
-      message: "切换服务商并继续此会话？",
-      detail:
-        "历史对话和工作内容可能发送给新服务商。协议不兼容时需要新建会话。",
-      buttons: ["取消", "继续"],
-      defaultId: 0,
-      cancelId: 0,
-    });
-    if (answer.response !== 1) return { cancelled: true };
+    if (data.providerSwitchConfirmed !== true)
+      return {
+        needsProviderConfirmation: true,
+        previousProviderId: s.providerId,
+        nextProviderId: data.providerId,
+      };
   }
-  // Recheck after asynchronous dialogs.
   if (run) throw Error("另一个任务正在运行");
   const current = {
     session: s,
@@ -1008,17 +1159,7 @@ const actions = {
     if (run?.session.id === data.id) throw Error("运行中的会话不能删除");
     const index = state.sessions.findIndex((session) => session.id === data.id);
     if (index < 0) throw Error("会话不存在");
-    const target = state.sessions[index];
-    const answer = await dialog.showMessageBox(win, {
-      type: "warning",
-      message: `永久删除“${target.title}”？`,
-      detail:
-        "消息、用量和会话关联将从 cc-board 删除且无法恢复。不会删除工作目录中的文件，也不会清除 Claude Code 自身保存的历史记录。",
-      buttons: ["取消", "永久删除"],
-      cancelId: 0,
-      defaultId: 0,
-    });
-    if (answer.response !== 1) return { cancelled: true };
+    if (data.confirmed !== true) return { needsConfirmation: true };
     if (run?.session.id === data.id) throw Error("运行中的会话不能删除");
     const confirmedIndex = state.sessions.findIndex(
       (session) => session.id === data.id,
@@ -1068,15 +1209,7 @@ const actions = {
     if (run) throw Error("请等待当前任务结束后再修改服务商");
     const provider = state.providers.find((item) => item.id === data.id);
     if (!provider) throw Error("服务商不存在");
-    const answer = await dialog.showMessageBox(win, {
-      type: "warning",
-      message: `清除“${provider.name}”保存的密钥？`,
-      detail: "此操作只清除 cc-board 中的加密副本，不会修改 CC Switch。",
-      buttons: ["取消", "清除"],
-      cancelId: 0,
-      defaultId: 0,
-    });
-    if (answer.response !== 1) return { cancelled: true };
+    if (data.confirmed !== true) return { needsConfirmation: true };
     provider.secret = "";
     update();
     return { cleared: true };
@@ -1085,16 +1218,7 @@ const actions = {
     if (run) throw Error("请等待当前任务结束后再删除服务商");
     const index = state.providers.findIndex((item) => item.id === data.id);
     if (index < 0) throw Error("服务商不存在");
-    const answer = await dialog.showMessageBox(win, {
-      type: "warning",
-      message: `删除“${state.providers[index].name}”？`,
-      detail:
-        "只删除 cc-board 中的配置。历史记录仍会保留；从 CC Switch 导入的配置可以再次导入。",
-      buttons: ["取消", "删除"],
-      cancelId: 0,
-      defaultId: 0,
-    });
-    if (answer.response !== 1) return { cancelled: true };
+    if (data.confirmed !== true) return { needsConfirmation: true };
     state.providers.splice(index, 1);
     update();
     return { deleted: true };
@@ -1104,15 +1228,7 @@ const actions = {
     const p = state.providers.find((p) => p.id === data.id);
     if (!p) throw Error("请先保存服务商");
     if (!p.model) throw Error("请填写实际模型 ID 后再测试");
-    const answer = await dialog.showMessageBox(win, {
-      message: "发送最小测试请求？",
-      detail:
-        "将向此服务商发送“Reply OK”，可能产生少量费用。仅验证基础消息接口，工具调用兼容性仍需实际任务验证。",
-      buttons: ["取消", "测试"],
-      cancelId: 0,
-      defaultId: 1,
-    });
-    if (answer.response !== 1) return { cancelled: true };
+    if (data.confirmed !== true) return { needsConfirmation: true };
     const headers = {
       "content-type": "application/json",
       "anthropic-version": "2023-06-01",
@@ -1154,6 +1270,13 @@ const actions = {
   authLogin,
   checkUpdate,
   searchSkills,
+  installSkillRepository,
+  confirmExit: async () => {
+    exitAfterRun = true;
+    if (run) await stopRun();
+    else app.quit();
+    return { closing: true };
+  },
   openReleases: () => shell.openExternal(releasesPage),
   openGitHub: (data) => {
     const url = new URL(String(data.url || ""));
@@ -1253,15 +1376,9 @@ async function runDesktopSmoke(index) {
     if (String(copiedText).replace(/\r\n/g, "\n") !== copyText)
       fail("消息复制内容不完整");
     originalSession.messages.pop();
-    const originalDialog = dialog.showMessageBox;
-    try {
-      dialog.showMessageBox = async () => ({ response: 1 });
-      await win.webContents.executeJavaScript(
-        `window.board.invoke('deleteSession', { id: ${JSON.stringify(ui.sameFolderId)} })`,
-      );
-    } finally {
-      dialog.showMessageBox = originalDialog;
-    }
+    await win.webContents.executeJavaScript(
+      `window.board.invoke('deleteSession', { id: ${JSON.stringify(ui.sameFolderId)}, confirmed: true })`,
+    );
     if (state.sessions.some((item) => item.id === ui.sameFolderId))
       fail("永久删除后会话仍然存在");
     persist();
@@ -1289,16 +1406,26 @@ async function runDesktopSmoke(index) {
         button('技能商场')?.click(); await wait(120);
         const marketVisible = Boolean(document.querySelector('input[aria-label="搜索 GitHub Skills"]'));
         const officialVisible = document.body.innerText.includes('anthropics/skills');
+        const installVisible = Boolean([...document.querySelectorAll('button')].find(node => node.textContent.includes('一键安装')));
         button('/plan')?.click(); await wait(40);
         const commandFilled = document.querySelector('textarea[aria-label="消息输入框"]')?.value.startsWith('/plan');
+        document.querySelector('button[aria-label="原生指令"]')?.click(); await wait(30);
+        const commandsIntegrated = Boolean(document.querySelector('.composer-options'));
+        document.querySelector('button[aria-label="原生指令"]')?.click();
+        document.querySelector('button[aria-label="模型"]')?.click(); await wait(30);
+        const modelChoice = [...document.querySelectorAll('.composer-options button')].find(node => node.textContent.trim() === 'opus');
+        const modelRect = modelChoice?.getBoundingClientRect();
+        const modelPointerTarget = modelRect
+          ? document.elementFromPoint(modelRect.left + modelRect.width / 2, modelRect.top + modelRect.height / 2)
+          : null;
+        const modelClickable = Boolean(modelChoice && (modelPointerTarget === modelChoice || modelChoice.contains(modelPointerTarget)));
+        modelChoice?.click();
         const textarea = document.querySelector('textarea[aria-label="消息输入框"]');
         const inputSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
         inputSetter.call(textarea, '最高权限弹窗鼠标测试');
         textarea.dispatchEvent(new Event('input', { bubbles: true }));
-        const permission = document.querySelector('select[aria-label="权限模式"]');
-        const selectSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
-        selectSetter.call(permission, 'bypassPermissions');
-        permission.dispatchEvent(new Event('change', { bubbles: true }));
+        document.querySelector('button[aria-label="权限模式"]')?.click(); await wait(30);
+        [...document.querySelectorAll('.composer-options button')].find(node => node.textContent.trim() === '完全自动')?.click();
         await wait(40);
         document.querySelector('button[aria-label="发送消息"]')?.click();
         await wait(80);
@@ -1314,11 +1441,14 @@ async function runDesktopSmoke(index) {
         const setupVisible = document.body.innerText.includes('首次使用检查');
         const nodeOptional = document.body.innerText.includes('安装版 cc-board 不依赖 Node.js');
         const ccSwitchOptional = document.body.innerText.includes('CC Switch（可选）');
-        return { marketVisible, officialVisible, commandFilled, riskVisible, riskClickable, setupVisible, nodeOptional, ccSwitchOptional };
+        return { marketVisible, officialVisible, installVisible, commandFilled, commandsIntegrated, modelClickable, riskVisible, riskClickable, setupVisible, nodeOptional, ccSwitchOptional };
       })()`);
       if (!skillsUi.marketVisible || !skillsUi.officialVisible)
         fail("技能商场或 GitHub 搜索结果未显示");
+      if (!skillsUi.installVisible) fail("Skill 卡片未显示一键安装按钮");
       if (!skillsUi.commandFilled) fail("原生指令未填入消息框");
+      if (!skillsUi.commandsIntegrated) fail("输入栏未显示原生指令入口");
+      if (!skillsUi.modelClickable) fail("模型选择区被其他界面遮挡");
       if (!skillsUi.riskVisible) fail("完全自动模式风险确认区未显示");
       if (!skillsUi.riskClickable) fail("完全自动模式风险确认区被其他界面遮挡");
       if (!skillsUi.setupVisible || !skillsUi.nodeOptional || !skillsUi.ccSwitchOptional)
@@ -1465,24 +1595,12 @@ app
       event.preventDefault();
       if (closePromptOpen) return;
       closePromptOpen = true;
-      dialog
-        .showMessageBox(win, {
-          type: "question",
-          message: "停止当前任务并退出？",
-          detail: "已经执行的文件操作不会自动撤销。",
-          buttons: ["继续运行", "停止并退出"],
-          cancelId: 0,
-          defaultId: 0,
-        })
-        .then(async (result) => {
-          if (result.response === 1) {
-            exitAfterRun = true;
-            await stopRun();
-          }
-        })
-        .finally(() => {
-          closePromptOpen = false;
-        });
+      emit("exitRequested", {});
+      win.show();
+      win.focus();
+      setTimeout(() => {
+        closePromptOpen = false;
+      }, 500);
     });
     await runDesktopSmoke(index);
   })

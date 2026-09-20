@@ -59,7 +59,10 @@ async function main() {
   assert.equal(result.keyProtected, true);
   assert.equal(result.skillsUi?.marketVisible, true);
   assert.equal(result.skillsUi?.officialVisible, true);
+  assert.equal(result.skillsUi?.installVisible, true);
   assert.equal(result.skillsUi?.commandFilled, true);
+  assert.equal(result.skillsUi?.commandsIntegrated, true);
+  assert.equal(result.skillsUi?.modelClickable, true);
   assert.equal(result.skillsUi?.riskVisible, true);
   assert.equal(result.skillsUi?.riskClickable, true);
   assert.equal(result.skillsUi?.setupVisible, true);

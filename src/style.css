@@ -389,6 +389,43 @@ header {
   box-shadow: 0 4px 20px #23352206;
   padding: 16px;
 }
+.composer-options {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: -3px -3px 13px;
+  padding: 0 0 12px;
+  border-bottom: 1px solid #edf0ed;
+}
+.composer-options > span {
+  color: #8a958e;
+  font-size: 10px;
+  margin-right: 3px;
+}
+.composer-options button {
+  border: 1px solid #dce4de;
+  background: #f8faf8;
+  color: #65766b;
+  border-radius: 6px;
+  padding: 6px 9px;
+  font-size: 10px;
+}
+.composer-options button.selected {
+  color: #fff;
+  background: #587562;
+  border-color: #587562;
+}
+.composer-options input {
+  width: 170px;
+  border: 1px solid #dce4de;
+  border-radius: 6px;
+  padding: 6px 9px;
+  font-size: 10px;
+}
+.composer-options code {
+  color: inherit;
+}
 .composer:focus-within {
   border-color: #a6b9ac;
   box-shadow: 0 3px 20px #29443408;
@@ -420,15 +457,21 @@ header {
   color: #748179;
   font-size: 11px;
   max-width: 240px;
-}
-.select-chip select {
   border: 0;
   background: transparent;
-  font-size: 11px;
-  max-width: 210px;
-  outline: none;
+  padding: 5px 2px;
+}
+.select-chip span {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .select-chip.permission {
+  padding-left: 10px;
+  border-left: 1px solid #e9ede9;
+}
+.command-chip {
   padding-left: 10px;
   border-left: 1px solid #e9ede9;
 }
@@ -799,15 +842,38 @@ h2 {
 .form-grid .full {
   grid-column: 1/-1;
 }
-.form-grid input,
-.form-grid select,
-.modal input {
+.form-grid input {
   border: 1px solid #dce3dd;
   border-radius: 6px;
   background: #fcfdfc;
   padding: 10px;
   font-size: 12px;
   width: 100%;
+}
+.segmented-field,
+.star-filters {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid #dce3dd;
+  border-radius: 7px;
+  background: #f7f9f7;
+}
+.segmented-field button,
+.star-filters button {
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #78857c;
+  padding: 7px 9px;
+  font-size: 10px;
+}
+.segmented-field button.selected,
+.star-filters button.selected {
+  color: #435b4b;
+  background: #fff;
+  box-shadow: 0 1px 4px #203a2812;
 }
 .form-footer {
   display: flex;
@@ -1079,23 +1145,42 @@ h2 {
 .dropdown .danger-item:hover {
   background: #fff1ef;
 }
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: #15271e40;
+.inline-confirm {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
-  justify-content: center;
-  z-index: 20;
+  gap: 14px;
+  margin: 12px 30px 0;
+  padding: 13px 15px;
+  color: #795348;
+  background: #fff8f5;
+  border: 1px solid #edcec6;
+  border-radius: 10px;
 }
-.modal {
-  background: #fff;
-  border-radius: 13px;
-  padding: 26px;
-  width: 380px;
+.inline-confirm > div:nth-child(2),
+.inline-confirm > label {
+  flex: 1;
+  min-width: 0;
 }
-.modal .button-row {
-  justify-content: flex-end;
+.inline-confirm strong {
+  display: block;
+  font-size: 12px;
+}
+.inline-confirm p {
+  margin: 4px 0 0;
+  color: #8b756d;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.inline-confirm .button-row {
+  flex-shrink: 0;
+}
+.rename-inline input {
+  width: 100%;
+  margin-top: 7px;
+  padding: 8px 10px;
+  border: 1px solid #d9dfdb;
+  border-radius: 6px;
 }
 .page-title-row {
   display: flex;
@@ -1210,8 +1295,7 @@ h2 {
   padding: 0 11px;
   color: #8c9890;
 }
-.skill-search input,
-.skill-search select {
+.skill-search input {
   border: 0;
   outline: 0;
   background: transparent;
@@ -1222,11 +1306,8 @@ h2 {
   flex: 1;
   padding: 10px 0;
 }
-.skill-search select {
-  border: 1px solid #dce3dd;
-  border-radius: 7px;
-  padding: 9px 30px 9px 10px;
-  background: #fff;
+.star-filters {
+  white-space: nowrap;
 }
 .skill-results {
   display: grid;
@@ -1305,7 +1386,27 @@ h2 {
 .skill-card-footer .secondary {
   padding: 7px 9px;
   font-size: 10px;
+}
+.skill-card-actions {
+  display: flex;
+  gap: 6px;
   margin-left: auto;
+}
+.skill-card-actions .primary,
+.skill-card-actions .secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 9px;
+  font-size: 10px;
+}
+.skill-install-result {
+  display: block;
+  margin-top: 11px;
+  padding-top: 10px;
+  border-top: 1px solid #edf0ed;
+  color: #66806e;
+  font-size: 9px;
 }
 .market-empty {
   min-height: 180px;
@@ -1411,9 +1512,6 @@ h2 {
   .select-chip {
     max-width: 200px;
   }
-  .select-chip select {
-    max-width: 170px;
-  }
   .page {
     padding: 30px;
   }
@@ -1429,14 +1527,6 @@ h2 {
     animation: none !important;
     transition: none !important;
   }
-}
-.select-chip input {
-  border: 0;
-  background: transparent;
-  outline: none;
-  font-size: 11px;
-  width: 108px;
-  min-width: 72px;
 }
 .model-chip {
   padding-left: 10px;
