@@ -6,6 +6,7 @@ const {
   safeStorage,
   shell,
   clipboard,
+  nativeTheme,
 } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -20,6 +21,9 @@ const {
   normalize,
   MODES,
   providerEnv,
+  parseJsonConfig,
+  extractProviderConfig,
+  messagesEndpoint,
   isNewerVersion,
   skillSearchQuery,
   normalizeGitHubRepository,
@@ -103,10 +107,14 @@ function normalizedState(value) {
   return {
     sessions,
     providers: Array.isArray(source.providers) ? source.providers : [],
-    settings:
-      source.settings && typeof source.settings === "object"
+    settings: {
+      ...(source.settings && typeof source.settings === "object"
         ? source.settings
-        : {},
+        : {}),
+      appearance: ["system", "light", "dark"].includes(source.settings?.appearance)
+        ? source.settings.appearance
+        : "system",
+    },
   };
 }
 function encrypt(text) {
@@ -145,7 +153,7 @@ function requireDirectory(value) {
     )
       throw Error();
   } catch {
-    throw Error("工作文件夹不存在或不可访问，请重新选择");
+    throw Error("工作台不存在或不可访问，请重新选择");
   }
   return value;
 }
@@ -165,12 +173,41 @@ function createSessionRecord(cwd) {
     archived: false,
   };
 }
+async function validateCli(candidate) {
+  if (!candidate || !path.isAbsolute(candidate) || !fs.existsSync(candidate)) return null;
+  let command = candidate;
+  let prefix = [];
+  if (/\.cmd$/i.test(candidate)) {
+    const cliScript = path.join(path.dirname(candidate), "node_modules", "@anthropic-ai", "claude-code", "cli.js");
+    if (!fs.existsSync(cliScript)) return null;
+    const node = await detectExecutable("node", ["--version"], [
+      path.join(process.env.ProgramFiles || "C:\\Program Files", "nodejs", "node.exe"),
+    ]);
+    if (!node.path) return null;
+    command = node.path;
+    prefix = [cliScript];
+  }
+  try {
+    const result = await exec(command, [...prefix, "--version"], { windowsHide: true, timeout: 15000 });
+    const version = String(result.stdout || result.stderr || "").trim();
+    if (!/claude/i.test(version)) return null;
+    return { path: command, displayPath: candidate, prefix, version };
+  } catch {
+    return null;
+  }
+}
 async function findCli() {
+  const localAppData = process.env.LOCALAPPDATA || "";
+  const appData = process.env.APPDATA || "";
   const candidates = [
     process.env.CCB_TEST_CLI_PATH,
     state.settings.cliPath,
     path.join(home, ".local", "bin", "claude.exe"),
     path.join(home, ".claude", "local", "claude.exe"),
+    localAppData && path.join(localAppData, "Programs", "claude", "claude.exe"),
+    localAppData && path.join(localAppData, "Microsoft", "WinGet", "Links", "claude.exe"),
+    appData && path.join(appData, "npm", "claude.exe"),
+    appData && path.join(appData, "npm", "claude.cmd"),
   ].filter(Boolean);
   try {
     const r = await exec("where.exe", ["claude"], {
@@ -181,16 +218,13 @@ async function findCli() {
       ...r.stdout
         .trim()
         .split(/\r?\n/)
-        .filter((p) => p.toLowerCase().endsWith(".exe")),
+        .filter(Boolean),
     );
   } catch {}
-  for (const candidate of candidates)
-    if (
-      path.isAbsolute(candidate) &&
-      fs.existsSync(candidate) &&
-      candidate.toLowerCase().endsWith(".exe")
-    )
-      return candidate;
+  for (const candidate of [...new Set(candidates.map((item) => path.resolve(item)))]) {
+    const verified = await validateCli(candidate);
+    if (verified) return verified;
+  }
   return null;
 }
 async function detectExecutable(command, args, candidates = []) {
@@ -230,7 +264,7 @@ async function detectExecutable(command, args, candidates = []) {
 async function environment() {
   const programFiles = process.env.ProgramFiles || "C:\\Program Files";
   const localAppData = process.env.LOCALAPPDATA || "";
-  const [cliPath, git, node, winget] = await Promise.all([
+  const [cli, git, node, winget] = await Promise.all([
     findCli(),
     detectExecutable("git", ["--version"], [
       path.join(programFiles, "Git", "cmd", "git.exe"),
@@ -247,23 +281,16 @@ async function environment() {
   let version = null,
     error = null,
     auth = null;
-  if (cliPath) {
+  const cliPath = cli?.displayPath || null;
+  if (cli) {
+    version = cli.version;
     try {
-      version = (
-        await exec(cliPath, ["--version"], {
-          windowsHide: true,
-          timeout: 15000,
-        })
-      ).stdout.trim();
-    } catch (e) {
-      error = redact(e.message);
-    }
-    try {
-      const status = await exec(cliPath, ["auth", "status"], {
+      let status;
+      try { status = await exec(cli.path, [...cli.prefix, "auth", "status", "--json"], {
         windowsHide: true,
         timeout: 15000,
-      });
-      const value = JSON.parse(status.stdout || "{}");
+      }); } catch { status = await exec(cli.path, [...cli.prefix, "auth", "status"], { windowsHide: true, timeout: 15000 }); }
+      const value = parseJsonConfig(status.stdout || status.stderr || "{}");
       auth = {
         loggedIn: Boolean(value.loggedIn),
         method: value.authMethod || value.authType || null,
@@ -285,7 +312,7 @@ async function environment() {
     auth,
     error,
     dependencies: { git, node, winget },
-    ccSwitch: fs.existsSync(path.join(home, ".cc-switch", "cc-switch.db")),
+    ccSwitch: ccSwitchDatabasePaths().some(fs.existsSync),
     dataPath: app.getPath("userData"),
   };
 }
@@ -585,72 +612,117 @@ function safeUrl(value) {
     throw Error("API 地址不能包含密码、查询参数或片段");
   return u.toString().replace(/\/$/, "");
 }
+function uniquePaths(values) {
+  return [...new Set(values.filter(Boolean).map((value) => path.resolve(value)))];
+}
+function ccSwitchRoots() {
+  const roots = [process.env.CCB_TEST_CC_SWITCH_DIR, path.join(home, ".cc-switch")];
+  if (process.env.HOME) roots.push(path.join(process.env.HOME, ".cc-switch"));
+  const pathFiles = [
+    path.join(home, ".cc-switch", "app_paths.json"),
+    process.env.APPDATA && path.join(process.env.APPDATA, "com.ccswitch.desktop", "app_paths.json"),
+    process.env.APPDATA && path.join(process.env.APPDATA, "CC Switch", "app_paths.json"),
+    process.env.APPDATA && path.join(process.env.APPDATA, "cc-switch", "app_paths.json"),
+    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "com.ccswitch.desktop", "app_paths.json"),
+    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "CC Switch", "app_paths.json"),
+  ].filter(Boolean);
+  for (const location of pathFiles) {
+    try {
+      const paths = parseJsonConfig(fs.readFileSync(location, "utf8"));
+      roots.push(paths.appConfigDir, paths.app_config_dir, paths.appConfigDirOverride);
+    } catch {}
+  }
+  for (const root of [...roots].filter(Boolean)) {
+    try {
+      const settings = parseJsonConfig(fs.readFileSync(path.join(root, "settings.json"), "utf8"));
+      roots.push(settings.appConfigDir, settings.app_config_dir, settings.appConfigDirOverride);
+    } catch {}
+  }
+  return uniquePaths(roots);
+}
+function ccSwitchDatabasePaths() {
+  return uniquePaths([
+    process.env.CCB_TEST_CC_SWITCH_DB,
+    ...ccSwitchRoots().map((root) => path.join(root, "cc-switch.db")),
+  ]);
+}
+function claudeSettingsPaths() {
+  const dirs = [process.env.CLAUDE_CONFIG_DIR, process.env.CCB_TEST_CLAUDE_CONFIG_DIR];
+  for (const root of ccSwitchRoots()) {
+    try {
+      const settings = parseJsonConfig(fs.readFileSync(path.join(root, "settings.json"), "utf8"));
+      dirs.push(settings.claudeConfigDir, settings.claude_config_dir);
+    } catch {}
+  }
+  dirs.push(path.join(home, ".claude"));
+  return uniquePaths(dirs).flatMap((dir) => [path.join(dir, "settings.json"), path.join(dir, "claude.json")]);
+}
 function extractProvider(name, config, sourceId) {
-  const e = config.env || {};
-  const baseUrl = e.ANTHROPIC_BASE_URL;
+  const extracted = extractProviderConfig(config);
+  const baseUrl = extracted.baseUrl;
   if (!baseUrl) return null;
-  const secret = e.ANTHROPIC_AUTH_TOKEN || e.ANTHROPIC_API_KEY;
-  // Import only known model aliases, never arbitrary executable environment variables.
-  const extraEnv = Object.fromEntries(
-    Object.entries(e).filter(
-      ([k, v]) =>
-        /^ANTHROPIC_DEFAULT_(HAIKU|SONNET|OPUS)_MODEL$/.test(k) &&
-        typeof v === "string",
-    ),
-  );
   return {
     id: sourceId,
     name,
     baseUrl: safeUrl(baseUrl),
-    model: e.ANTHROPIC_MODEL || "",
-    authType: e.ANTHROPIC_AUTH_TOKEN ? "token" : "apiKey",
-    secret: secret ? encrypt(secret) : "",
-    extraEnv,
+    model: extracted.model,
+    authType: extracted.authType,
+    secret: extracted.secret ? encrypt(extracted.secret) : "",
+    extraEnv: extracted.extraEnv,
     source: "CC Switch / 原生配置",
   };
 }
 async function importProviders() {
   const { DatabaseSync } = require("node:sqlite");
-  const file = path.join(home, ".cc-switch", "cc-switch.db");
   let imported = 0,
     skipped = 0;
   const candidates = [];
-  if (fs.existsSync(file)) {
-    const source = new DatabaseSync(file, { readOnly: true });
+  const details = [];
+  for (const file of ccSwitchDatabasePaths().filter(fs.existsSync)) {
+    let source;
     try {
-      for (const row of source
-        .prepare(
-          "SELECT id, name, settings_config FROM providers WHERE app_type = 'claude'",
-        )
-        .all()) {
+      source = new DatabaseSync(file, { readOnly: true });
+      source.exec("PRAGMA busy_timeout=3000");
+      const columns = source.prepare("PRAGMA table_info(providers)").all().map((column) => column.name);
+      const pick = (...names) => names.find((name) => columns.includes(name));
+      const idColumn = pick("id", "provider_id");
+      const nameColumn = pick("name", "provider_name");
+      const configColumn = pick("settings_config", "settingsConfig", "config");
+      const appColumn = pick("app_type", "appType");
+      if (!idColumn || !configColumn) throw Error("providers 表结构不受支持");
+      const selected = [`${idColumn} AS id`, `${nameColumn || idColumn} AS name`, `${configColumn} AS settings_config`];
+      const sql = `SELECT ${selected.join(", ")} FROM providers${appColumn ? ` WHERE lower(${appColumn}) = 'claude'` : ""}`;
+      let found = 0;
+      for (const row of source.prepare(sql).all()) {
         try {
-          candidates.push(
-            extractProvider(
-              row.name,
-              JSON.parse(row.settings_config),
-              "ccswitch-" + row.id,
-            ),
-          );
-        } catch {
-          skipped++;
+          const provider = extractProvider(row.name, row.settings_config, "ccswitch-" + row.id);
+          if (provider) { candidates.push(provider); found += 1; }
+          else skipped += 1;
+        } catch (error) {
+          skipped += 1;
+          details.push(`${row.name || row.id}：${error.message}`);
         }
       }
+      details.push(`CC Switch：读取 ${found} 项（${file}）`);
+    } catch (error) {
+      skipped += 1;
+      details.push(`CC Switch 数据库读取失败：${redact(error.message)}`);
     } finally {
-      source.close();
+      source?.close();
     }
   }
-  const configPath = path.join(home, ".claude", "settings.json");
-  if (fs.existsSync(configPath)) {
+  for (const configPath of claudeSettingsPaths().filter(fs.existsSync)) {
     try {
-      candidates.push(
-        extractProvider(
-          "当前 Claude Code 配置",
-          JSON.parse(fs.readFileSync(configPath, "utf8")),
-          "claude-current",
-        ),
-      );
-    } catch {
-      skipped++;
+      const provider = extractProvider("当前 Claude Code 配置", fs.readFileSync(configPath, "utf8"), "claude-current-" + Buffer.from(configPath).toString("hex").slice(-16));
+      if (provider) {
+        candidates.push(provider);
+        details.push(`Claude 配置：已读取 ${configPath}`);
+      } else {
+        details.push(`Claude 配置未包含第三方 API 地址：${configPath}`);
+      }
+    } catch (error) {
+      skipped += 1;
+      details.push(`Claude 配置读取失败：${redact(error.message)}`);
     }
   }
   for (const p of candidates.filter(Boolean)) {
@@ -664,7 +736,7 @@ async function importProviders() {
     imported++;
   }
   update();
-  return { imported, skipped };
+  return { imported, skipped, details };
 }
 async function approvalServer(current) {
   const server = http.createServer((req, res) => {
@@ -774,7 +846,7 @@ async function startRun(data) {
   if (!prompt || prompt.length > 100000)
     throw Error("请输入 1–100000 字符的内容");
   if (!fs.existsSync(s.cwd) || !fs.statSync(s.cwd).isDirectory())
-    throw Error("工作文件夹不存在，请重新选择");
+    throw Error("工作台不存在，请重新选择");
   const cli = await findCli();
   if (!cli)
     throw Error("未检测到原生 Claude Code。请在设置中安装或选择 claude.exe。");
@@ -866,7 +938,16 @@ async function startRun(data) {
       s.title = prompt.slice(0, 32);
     message(s, "user", prompt);
     message(s, "audit", `本次运行：${profile?.name || "原生配置"} · ${mode}`);
-    const child = spawn(cli, args, {
+    if (!env.CLAUDE_CODE_GIT_BASH_PATH) {
+      const git = await detectExecutable("git", ["--version"], [
+        path.join(process.env.ProgramFiles || "C:\\Program Files", "Git", "cmd", "git.exe"),
+      ]);
+      if (git.path) {
+        const bash = path.resolve(path.dirname(git.path), "..", "bin", "bash.exe");
+        if (fs.existsSync(bash)) env.CLAUDE_CODE_GIT_BASH_PATH = bash;
+      }
+    }
+    const child = spawn(cli.path, [...cli.prefix, ...args], {
       cwd: s.cwd,
       env,
       windowsHide: true,
@@ -1062,7 +1143,7 @@ async function authLogin() {
     text: "正在打开 Claude 官方登录页面，请在浏览器中完成登录…",
   });
   return new Promise((resolve, reject) => {
-    const child = spawn(cli, ["auth", "login"], {
+    const child = spawn(cli.path, [...cli.prefix, "auth", "login"], {
       windowsHide: true,
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
@@ -1104,17 +1185,23 @@ const actions = {
   },
   pickFolder: async () => {
     const r = await dialog.showOpenDialog(win, {
+      title: "选择工作台",
+      buttonLabel: "选择工作台",
       properties: ["openDirectory", "createDirectory"],
     });
     return r.canceled ? null : r.filePaths[0];
   },
   pickCli: async () => {
     const r = await dialog.showOpenDialog(win, {
-      filters: [{ name: "Claude Code", extensions: ["exe"] }],
+      title: "选择 Claude Code 程序",
+      buttonLabel: "验证并连接",
+      filters: [{ name: "Claude Code", extensions: ["exe", "cmd"] }],
       properties: ["openFile"],
     });
     if (!r.canceled) {
-      state.settings.cliPath = r.filePaths[0];
+      const verified = await validateCli(r.filePaths[0]);
+      if (!verified) throw Error("所选文件不是可正常运行的 Claude Code，请重新选择 claude.exe");
+      state.settings.cliPath = verified.displayPath;
       persist();
     }
     return environment();
@@ -1224,6 +1311,16 @@ const actions = {
     return { deleted: true };
   },
   importProviders,
+  setAppearance: (data) => {
+    const appearance = String(data.appearance || "");
+    if (!["system", "light", "dark"].includes(appearance))
+      throw Error("外观设置无效");
+    state.settings.appearance = appearance;
+    nativeTheme.themeSource = appearance;
+    update();
+    persist();
+    return { appearance };
+  },
   testProvider: async (data) => {
     const p = state.providers.find((p) => p.id === data.id);
     if (!p) throw Error("请先保存服务商");
@@ -1237,9 +1334,7 @@ const actions = {
       if (p.authType === "apiKey") headers["x-api-key"] = decrypt(p.secret);
       else headers.authorization = "Bearer " + decrypt(p.secret);
     }
-    const endpoint =
-      p.baseUrl.replace(/\/$/, "") +
-      (p.baseUrl.endsWith("/v1") ? "/messages" : "/v1/messages");
+    const endpoint = messagesEndpoint(p.baseUrl);
     const response = await fetch(endpoint, {
       method: "POST",
       headers,
@@ -1441,7 +1536,12 @@ async function runDesktopSmoke(index) {
         const setupVisible = document.body.innerText.includes('首次使用检查');
         const nodeOptional = document.body.innerText.includes('安装版 cc-board 不依赖 Node.js');
         const ccSwitchOptional = document.body.innerText.includes('CC Switch（可选）');
-        return { marketVisible, officialVisible, installVisible, commandFilled, commandsIntegrated, modelClickable, riskVisible, riskClickable, setupVisible, nodeOptional, ccSwitchOptional };
+        const workbenchWording = document.querySelector('.new-chat')?.title === '选择工作台并新建对话';
+        const darkButton = [...document.querySelectorAll('.appearance-options button')].find(node => node.textContent.includes('黑色'));
+        darkButton?.click(); await wait(80);
+        const darkSurface = getComputedStyle(document.querySelector('.settings-card')).backgroundColor;
+        const darkTheme = document.documentElement.dataset.theme === 'dark' && darkButton?.getAttribute('aria-pressed') === 'true' && darkSurface === 'rgb(32, 38, 34)';
+        return { marketVisible, officialVisible, installVisible, commandFilled, commandsIntegrated, modelClickable, riskVisible, riskClickable, setupVisible, nodeOptional, ccSwitchOptional, workbenchWording, darkTheme, darkSurface };
       })()`);
       if (!skillsUi.marketVisible || !skillsUi.officialVisible)
         fail("技能商场或 GitHub 搜索结果未显示");
@@ -1453,11 +1553,15 @@ async function runDesktopSmoke(index) {
       if (!skillsUi.riskClickable) fail("完全自动模式风险确认区被其他界面遮挡");
       if (!skillsUi.setupVisible || !skillsUi.nodeOptional || !skillsUi.ccSwitchOptional)
         fail("首次使用环境检查或可选依赖说明未显示");
+      if (!skillsUi.workbenchWording) fail("新建对话仍未使用工作台文案");
+      if (!skillsUi.darkTheme) fail("黑色外观未正确应用或保存");
     }
     let nativeBridge = null;
     if (process.env.CCB_SMOKE_NATIVE === "1") {
       nativeBridge = await win.webContents.executeJavaScript(`(async () => {
         const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+        document.querySelector('.history-item')?.click();
+        await wait(80);
         const started = await window.board.invoke('start', {
           sessionId: ${JSON.stringify(ui.sessionId)},
           prompt: 'Run the local bridge integration test and finish.',
@@ -1478,7 +1582,13 @@ async function runDesktopSmoke(index) {
           }
           await wait(40);
         }
-        throw Error('原生桥接任务超时');
+        throw Error('原生桥接任务超时：' + JSON.stringify({
+          approvalCount: document.querySelectorAll('.approval').length,
+          chatVisible: Boolean(document.querySelector('.composer-area')),
+          selectedHistory: document.querySelector('.history-item.selected')?.textContent,
+          status: document.querySelector('.working')?.textContent,
+          notice: document.querySelector('.toast')?.textContent,
+        }));
       })()`);
       if (!nativeBridge.approved) fail("审批卡没有在界面中完成允许操作");
       if (!nativeBridge.messages.some((item) => item.role === "assistant"))
@@ -1547,13 +1657,14 @@ app
     );
     const row = db.prepare("SELECT payload FROM state WHERE id=1").get();
     state = normalizedState(row ? JSON.parse(row.payload) : null);
+    nativeTheme.themeSource = state.settings.appearance;
     win = new BrowserWindow({
       width: 1280,
       height: 850,
       minWidth: 940,
       minHeight: 640,
       title: "cc-board",
-      backgroundColor: "#f8f9fb",
+      backgroundColor: nativeTheme.shouldUseDarkColors ? "#151816" : "#f8f9fb",
       autoHideMenuBar: true,
       webPreferences: {
         preload: path.join(__dirname, "preload.cjs"),

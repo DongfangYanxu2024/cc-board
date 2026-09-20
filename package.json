@@ -1,6 +1,6 @@
 {
   "name": "cc-board",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "A local desktop bridge for native Claude Code",
   "author": "cc-board contributors",
   "license": "MIT",

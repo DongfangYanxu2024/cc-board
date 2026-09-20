@@ -10,7 +10,35 @@ const {
   normalizeGitHubRepository,
   isSkillRepository,
   installPlan,
+  parseJsonConfig,
+  extractProviderConfig,
+  messagesEndpoint,
 } = require("../electron/core.cjs");
+
+test("provider import accepts current, nested, flat, and BOM-prefixed configurations", () => {
+  assert.deepEqual(extractProviderConfig('\uFEFF{"env":{"ANTHROPIC_BASE_URL":"https://one.test/v1","ANTHROPIC_API_KEY":"key","ANTHROPIC_MODEL":"m1"}}'), {
+    baseUrl: "https://one.test/v1",
+    secret: "key",
+    authType: "apiKey",
+    model: "m1",
+    extraEnv: {},
+  });
+  assert.deepEqual(extractProviderConfig({ auth: { baseUrl: "https://two.test", token: "tok" }, settings: { env: { ANTHROPIC_DEFAULT_SONNET_MODEL: "sonnet-x" } } }), {
+    baseUrl: "https://two.test",
+    secret: "tok",
+    authType: "token",
+    model: "",
+    extraEnv: { ANTHROPIC_DEFAULT_SONNET_MODEL: "sonnet-x" },
+  });
+  assert.equal(extractProviderConfig({ base_url: "https://three.test", api_key: "flat" }).secret, "flat");
+  assert.throws(() => parseJsonConfig("[]"));
+});
+
+test("provider test endpoint does not duplicate a complete messages path", () => {
+  assert.equal(messagesEndpoint("https://api.test/v1"), "https://api.test/v1/messages");
+  assert.equal(messagesEndpoint("https://api.test/v1/messages"), "https://api.test/v1/messages");
+  assert.equal(messagesEndpoint("https://api.test/custom"), "https://api.test/custom/v1/messages");
+});
 
 test("version comparison accepts release tags and ignores older releases", () => {
   assert.equal(isNewerVersion("v0.1.1", "0.1.0"), true);

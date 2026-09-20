@@ -33,6 +33,9 @@ import {
   FolderPlus,
   Store,
   Command,
+  Monitor,
+  Sun,
+  Moon,
 } from "lucide-react";
 import "./style.css";
 import SkillsPage, { nativeCommands } from "./SkillsPage.jsx";
@@ -122,6 +125,8 @@ function App() {
           ...a.filter((item) => item.requestId !== e.requestId),
           e,
         ]);
+        select(e.sessionId);
+        setView("chat");
         setNotice(`运行中的会话需要批准：${e.tool}`);
       }
       if (e.type === "approvalClosed") {
@@ -160,6 +165,18 @@ function App() {
       .catch((e) => setNotice(e.message));
     return unsubscribe;
   }, []);
+  useEffect(() => {
+    const preference = state.settings?.appearance || "system";
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      const resolved = preference === "system" ? (media.matches ? "dark" : "light") : preference;
+      document.documentElement.dataset.theme = resolved;
+      document.documentElement.style.colorScheme = resolved;
+    };
+    apply();
+    media.addEventListener?.("change", apply);
+    return () => media.removeEventListener?.("change", apply);
+  }, [state.settings?.appearance]);
   useEffect(() => {
     if (session) {
       setProvider(session.providerId || "native");
@@ -388,7 +405,7 @@ function App() {
       select(sid);
       setView("chat");
       setPrompt("");
-      setNotice("已在同一文件夹新建对话。");
+      setNotice("已在同一工作台新建对话。");
       setTimeout(() => input.current?.focus(), 0);
     }
   }
@@ -436,8 +453,12 @@ function App() {
     const result = await call("importProviders");
     if (result)
       setNotice(
-        `已导入 ${result.imported} 项配置${result.skipped ? `，${result.skipped} 项不兼容已跳过` : ""}。原文件未修改。`,
+        `已导入 ${result.imported} 项配置${result.skipped ? `，${result.skipped} 项未能导入` : ""}。${result.details?.at(-1) || "原文件未修改。"}`,
       );
+  }
+  async function changeAppearance(appearance) {
+    const result = await call("setAppearance", { appearance });
+    if (result) setNotice("外观偏好已保存。");
   }
   async function checkForUpdate() {
     setUpdateBusy(true);
@@ -497,7 +518,7 @@ function App() {
           <b>cc-board</b>
           <span className="alpha">{env?.appVersion ? `v${env.appVersion}` : "预览版"}</span>
         </div>
-        <button className="new-chat" onClick={newChat}>
+        <button className="new-chat" title="选择工作台并新建对话" onClick={newChat}>
           <Plus size={18} /> 新建对话 <span>＋</span>
         </button>
         <div className="search">
@@ -632,7 +653,7 @@ function App() {
                       onClick={newChatInCurrentFolder}
                     >
                       <FolderPlus size={14} />
-                      在此文件夹新建对话
+                      在此工作台新建对话
                     </button>
                     <button
                       role="menuitem"
@@ -890,7 +911,7 @@ function App() {
                   </div>
                   <p>
                     Claude Code 将跳过逐项工具审批，可以执行命令、修改或删除文件并联网。
-                    工作文件夹不是安全沙箱，关闭或停止也不会撤销已经完成的操作。
+                    工作台不是安全沙箱，关闭或停止也不会撤销已经完成的操作。
                   </p>
                   <div className="risk-list">
                     <span>可能造成数据丢失</span>
@@ -1137,7 +1158,7 @@ function App() {
               <div className="composer-footer">
                 <span>
                   <FolderOpen size={13} />
-                  {session?.cwd || "发送前选择工作文件夹"}
+                  {session?.cwd || "发送前选择工作台"}
                 </span>
                 <span>Enter 发送 · Shift + Enter 换行</span>
               </div>
@@ -1388,6 +1409,32 @@ function App() {
             />
             <section className="settings-card">
               <div className="section-heading">
+                <Sun size={22} />
+                <div>
+                  <h2>外观</h2>
+                  <p>选择黑色、白色，或自动跟随电脑的系统设置。</p>
+                </div>
+              </div>
+              <div className="appearance-options" role="group" aria-label="外观偏好">
+                {[
+                  ["system", "跟随系统", Monitor],
+                  ["light", "白色", Sun],
+                  ["dark", "黑色", Moon],
+                ].map(([value, label, Icon]) => (
+                  <button
+                    key={value}
+                    className={(state.settings?.appearance || "system") === value ? "selected" : ""}
+                    aria-pressed={(state.settings?.appearance || "system") === value}
+                    onClick={() => changeAppearance(value)}
+                  >
+                    <Icon size={16} /> {label}
+                    {(state.settings?.appearance || "system") === value && <Check size={14} />}
+                  </button>
+                ))}
+              </div>
+            </section>
+            <section className="settings-card">
+              <div className="section-heading">
                 <Cable size={22} />
                 <div>
                   <h2>CC Switch（可选）</h2>
@@ -1449,7 +1496,7 @@ function App() {
                 </div>
               </div>
               <p>
-                工作文件夹不是沙箱。关闭自动模式需先停止运行，已经执行的操作不会撤销。历史记录保存在本机，API
+                工作台不是沙箱。关闭自动模式需先停止运行，已经执行的操作不会撤销。历史记录保存在本机，API
                 Key 使用系统加密；向模型发送的内容由所选服务商处理。
               </p>
               <code>{env?.dataPath || "桌面程序启动后显示数据目录"}</code>

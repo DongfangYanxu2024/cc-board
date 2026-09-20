@@ -9,7 +9,23 @@ async function main() {
   const userData = path.join(root, "work", "smoke-" + stamp);
   const cwd = path.join(root, "work", "smoke-workspace-" + stamp);
   const output = path.join(root, "work", "desktop-smoke-" + stamp + ".json");
+  const ccSwitchDir = path.join(root, "work", "cc-switch-" + stamp);
+  const claudeConfigDir = path.join(root, "work", "claude-config-" + stamp);
   fs.mkdirSync(cwd, { recursive: true });
+  fs.mkdirSync(ccSwitchDir, { recursive: true });
+  fs.mkdirSync(claudeConfigDir, { recursive: true });
+  const { DatabaseSync } = require("node:sqlite");
+  const fixture = new DatabaseSync(path.join(ccSwitchDir, "cc-switch.db"));
+  fixture.exec("CREATE TABLE providers(id TEXT, app_type TEXT, name TEXT, settings_config TEXT)");
+  fixture.prepare("INSERT INTO providers VALUES (?, ?, ?, ?)").run(
+    "flat-provider",
+    "claude",
+    "兼容格式服务",
+    JSON.stringify({ base_url: "https://flat.example.test", api_key: "fixture-secret", model: "fixture-model" }),
+  );
+  fixture.close();
+  fs.writeFileSync(path.join(ccSwitchDir, "settings.json"), JSON.stringify({ claudeConfigDir }));
+  fs.writeFileSync(path.join(claudeConfigDir, "settings.json"), '\uFEFF' + JSON.stringify({ env: { ANTHROPIC_BASE_URL: "https://nested.example.test", ANTHROPIC_AUTH_TOKEN: "nested-secret", ANTHROPIC_MODEL: "nested-model" } }));
   const launchEnv = {
     ...process.env,
     CCB_TEST_USER_DATA: userData,
@@ -17,6 +33,8 @@ async function main() {
     CCB_SMOKE_CWD: cwd,
     CCB_SMOKE_KEY: "cc-board-smoke-secret",
     CCB_SMOKE_SKILLS: "1",
+    CCB_SMOKE_IMPORT: "1",
+    CCB_TEST_CC_SWITCH_DIR: ccSwitchDir,
   };
   delete launchEnv.ELECTRON_RUN_AS_NODE;
   const executable = path.join(
@@ -48,12 +66,8 @@ async function main() {
   );
   const result = JSON.parse(fs.readFileSync(output, "utf8"));
   assert.equal(result.ok, true, result.error || stderr);
-  if (process.env.CCB_SMOKE_IMPORT === "1") {
-    assert.ok(result.providerCount >= 1);
-    assert.ok(result.importResult?.imported >= 0);
-  } else {
-    assert.equal(result.providerCount, 1);
-  }
+  assert.ok(result.providerCount >= 3);
+  assert.ok(result.importResult?.imported >= 2);
   assert.equal(result.sessionCount, 1);
   assert.equal(result.pinnedSession, true);
   assert.equal(result.keyProtected, true);

@@ -33,6 +33,54 @@ function providerEnv(profile, decrypt) {
   if (profile.model) env.ANTHROPIC_MODEL = profile.model;
   return env;
 }
+function parseJsonConfig(value) {
+  if (value && typeof value === 'object') return value;
+  const text = String(value || '').replace(/^\uFEFF/, '').trim();
+  if (!text) throw Error('配置内容为空');
+  const parsed = JSON.parse(text);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+    throw Error('配置不是 JSON 对象');
+  return parsed;
+}
+function configValue(config, names) {
+  const wanted = new Set(names.map((name) => name.toLowerCase()));
+  const sections = [
+    config,
+    config?.env,
+    config?.auth,
+    config?.config,
+    config?.settings,
+    config?.settings?.env,
+    config?.config?.env,
+  ];
+  for (const section of sections) {
+    if (!section || typeof section !== 'object' || Array.isArray(section)) continue;
+    for (const [key, value] of Object.entries(section))
+      if (wanted.has(key.toLowerCase()) && (typeof value === 'string' || typeof value === 'number')) {
+        const result = String(value).trim();
+        if (result) return result;
+      }
+  }
+  return '';
+}
+function extractProviderConfig(value) {
+  const config = parseJsonConfig(value);
+  const baseUrl = configValue(config, ['ANTHROPIC_BASE_URL', 'base_url', 'baseUrl', 'endpoint', 'api_url']);
+  const token = configValue(config, ['ANTHROPIC_AUTH_TOKEN', 'auth_token', 'authToken', 'token']);
+  const apiKey = configValue(config, ['ANTHROPIC_API_KEY', 'api_key', 'apiKey']);
+  const model = configValue(config, ['ANTHROPIC_MODEL', 'model', 'model_id', 'modelId']);
+  const extraEnv = {};
+  for (const key of ['ANTHROPIC_DEFAULT_HAIKU_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_OPUS_MODEL']) {
+    const found = configValue(config, [key]);
+    if (found) extraEnv[key] = found;
+  }
+  return { baseUrl, secret: token || apiKey, authType: token ? 'token' : 'apiKey', model, extraEnv };
+}
+function messagesEndpoint(value) {
+  const base = String(value || '').replace(/\/+$/, '');
+  if (/\/messages$/i.test(base)) return base;
+  return /\/v1$/i.test(base) ? `${base}/messages` : `${base}/v1/messages`;
+}
 function isNewerVersion(latest, current) {
   const parse = (value) => {
     const match = String(value || "").trim().match(/^v?(\d+)\.(\d+)\.(\d+)/i);
@@ -126,4 +174,4 @@ function installPlan(target, wingetPath = "") {
   };
 }
 function id() { return randomUUID(); }
-module.exports = { lineDecoder, argumentsFor, normalize, MODES, providerEnv, isNewerVersion, skillSearchQuery, normalizeGitHubRepository, isSkillRepository, dependencyDownloadUrls, installPlan, id };
+module.exports = { lineDecoder, argumentsFor, normalize, MODES, providerEnv, parseJsonConfig, extractProviderConfig, messagesEndpoint, isNewerVersion, skillSearchQuery, normalizeGitHubRepository, isSkillRepository, dependencyDownloadUrls, installPlan, id };

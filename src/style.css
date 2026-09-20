@@ -929,6 +929,108 @@ h2 {
   gap: 9px;
   margin-top: 18px;
 }
+.appearance-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+}
+.appearance-options button {
+  min-height: 42px;
+  border: 1px solid #dce3dd;
+  border-radius: 8px;
+  background: #f8faf8;
+  color: #647168;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-size: 11px;
+}
+.appearance-options button.selected {
+  border-color: #819b88;
+  background: #edf4ef;
+  color: #385044;
+}
+
+html[data-theme="dark"] {
+  color: #e4e9e5;
+  background: #151816;
+}
+html[data-theme="dark"] body,
+html[data-theme="dark"] main,
+html[data-theme="dark"] .conversation,
+html[data-theme="dark"] .page {
+  background: #151816;
+  color: #e4e9e5;
+}
+html[data-theme="dark"] .sidebar {
+  background: #1b201d;
+  border-color: #303832;
+}
+html[data-theme="dark"] header,
+html[data-theme="dark"] .composer,
+html[data-theme="dark"] .provider-form,
+html[data-theme="dark"] .settings-card,
+html[data-theme="dark"] .skill-card,
+html[data-theme="dark"] .command-card,
+html[data-theme="dark"] .inline-confirm,
+html[data-theme="dark"] .risk-panel,
+html[data-theme="dark"] .dropdown,
+html[data-theme="dark"] .composer-options,
+html[data-theme="dark"] .toast {
+  background: #202622;
+  border-color: #374139;
+  color: #e4e9e5;
+}
+html[data-theme="dark"] .new-chat,
+html[data-theme="dark"] .secondary,
+html[data-theme="dark"] .appearance-options button,
+html[data-theme="dark"] .segmented-field,
+html[data-theme="dark"] .star-filters,
+html[data-theme="dark"] input,
+html[data-theme="dark"] textarea,
+html[data-theme="dark"] select,
+html[data-theme="dark"] .settings-card code {
+  background: #272e29;
+  border-color: #404a42;
+  color: #dbe3dd;
+}
+html[data-theme="dark"] .appearance-options button.selected,
+html[data-theme="dark"] .segmented-field button.selected,
+html[data-theme="dark"] .star-filters button.selected,
+html[data-theme="dark"] .history-item.selected,
+html[data-theme="dark"] .nav.active {
+  background: #35453b;
+  color: #dceade;
+}
+html[data-theme="dark"] .history-item,
+html[data-theme="dark"] .nav,
+html[data-theme="dark"] .search,
+html[data-theme="dark"] .local,
+html[data-theme="dark"] .muted-note,
+html[data-theme="dark"] .page-desc,
+html[data-theme="dark"] .section-heading p,
+html[data-theme="dark"] .settings-card > p,
+html[data-theme="dark"] .provider-card p,
+html[data-theme="dark"] .provider-card small,
+html[data-theme="dark"] .form-grid label {
+  color: #9eaaa2;
+}
+html[data-theme="dark"] h1,
+html[data-theme="dark"] h2,
+html[data-theme="dark"] h3,
+html[data-theme="dark"] strong,
+html[data-theme="dark"] .section-heading h2,
+html[data-theme="dark"] .dependency-name strong {
+  color: #e5ece7;
+}
+html[data-theme="dark"] .setup-heading,
+html[data-theme="dark"] .dependency-card,
+html[data-theme="dark"] .provider-card,
+html[data-theme="dark"] .message,
+html[data-theme="dark"] .tool-card {
+  border-color: #343d36;
+}
 .install-log {
   white-space: pre-wrap;
   max-height: 200px;
