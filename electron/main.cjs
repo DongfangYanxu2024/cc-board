@@ -1541,7 +1541,11 @@ async function runDesktopSmoke(index) {
         darkButton?.click(); await wait(80);
         const darkSurface = getComputedStyle(document.querySelector('.settings-card')).backgroundColor;
         const darkTheme = document.documentElement.dataset.theme === 'dark' && darkButton?.getAttribute('aria-pressed') === 'true' && darkSurface === 'rgb(32, 38, 34)';
-        return { marketVisible, officialVisible, installVisible, commandFilled, commandsIntegrated, modelClickable, riskVisible, riskClickable, setupVisible, nodeOptional, ccSwitchOptional, workbenchWording, darkTheme, darkSurface };
+        button('技能商场')?.click(); await wait(120);
+        const marketSurface = getComputedStyle(document.querySelector('.skills-section')).backgroundColor;
+        const skillSurface = getComputedStyle(document.querySelector('.skill-card')).backgroundColor;
+        const skillDarkTheme = marketSurface === 'rgb(32, 38, 34)' && skillSurface === 'rgb(36, 43, 38)';
+        return { marketVisible, officialVisible, installVisible, commandFilled, commandsIntegrated, modelClickable, riskVisible, riskClickable, setupVisible, nodeOptional, ccSwitchOptional, workbenchWording, darkTheme, darkSurface, skillDarkTheme, marketSurface, skillSurface };
       })()`);
       if (!skillsUi.marketVisible || !skillsUi.officialVisible)
         fail("技能商场或 GitHub 搜索结果未显示");
@@ -1555,6 +1559,7 @@ async function runDesktopSmoke(index) {
         fail("首次使用环境检查或可选依赖说明未显示");
       if (!skillsUi.workbenchWording) fail("新建对话仍未使用工作台文案");
       if (!skillsUi.darkTheme) fail("黑色外观未正确应用或保存");
+      if (!skillsUi.skillDarkTheme) fail("黑色外观下 Skill 商店卡片颜色不正确");
     }
     let nativeBridge = null;
     if (process.env.CCB_SMOKE_NATIVE === "1") {

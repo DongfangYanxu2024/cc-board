@@ -1688,3 +1688,85 @@ html[data-theme="dark"] .tool-card {
     margin-left: auto;
   }
 }
+
+/* These components are declared late in the stylesheet, so keep their dark
+   palette here as well to prevent light card colors from winning the cascade. */
+html[data-theme="dark"] .skills-section {
+  background: #202622;
+  border-color: #374139;
+}
+html[data-theme="dark"] .skills-section-title h2,
+html[data-theme="dark"] .skill-card h3,
+html[data-theme="dark"] .command-card strong {
+  color: #e5ece7;
+}
+html[data-theme="dark"] .skills-section-title p,
+html[data-theme="dark"] .skill-card > p,
+html[data-theme="dark"] .command-card small,
+html[data-theme="dark"] .repo-meta,
+html[data-theme="dark"] .market-empty,
+html[data-theme="dark"] .market-empty small,
+html[data-theme="dark"] .market-note {
+  color: #9eaaa2;
+}
+html[data-theme="dark"] .command-card,
+html[data-theme="dark"] .skill-card {
+  background: #242b26;
+  border-color: #3b463e;
+  box-shadow: 0 1px 0 #ffffff08 inset;
+}
+html[data-theme="dark"] .command-card:hover,
+html[data-theme="dark"] .skill-card:hover {
+  background: #29322c;
+  border-color: #607465;
+}
+html[data-theme="dark"] .command-card code,
+html[data-theme="dark"] .command-card > svg,
+html[data-theme="dark"] .skills-section-title,
+html[data-theme="dark"] .skill-install-result {
+  color: #91b19b;
+}
+html[data-theme="dark"] .command-icon,
+html[data-theme="dark"] .repo-mark {
+  background: #314038;
+  color: #a8c8b1;
+}
+html[data-theme="dark"] .skill-search label,
+html[data-theme="dark"] .star-filters {
+  background: #1a201c;
+  border-color: #3b463e;
+  color: #a7b2aa;
+}
+html[data-theme="dark"] .star-filters button {
+  color: #a7b2aa;
+}
+html[data-theme="dark"] .star-filters button.selected {
+  background: #3a4b40;
+  color: #ecf4ee;
+  box-shadow: 0 1px 4px #00000040;
+}
+html[data-theme="dark"] .official-tag {
+  background: #294235;
+  color: #a9d0b5;
+}
+html[data-theme="dark"] .badge {
+  background: #303933;
+  color: #b5c1b8;
+}
+html[data-theme="dark"] .badge.green {
+  background: #294235;
+  color: #a9d0b5;
+}
+html[data-theme="dark"] .repo-topics span {
+  background: #303933;
+  color: #b4c0b7;
+}
+html[data-theme="dark"] .skill-card-footer .secondary {
+  background: #303833;
+  border-color: #48534b;
+  color: #d7dfd9;
+}
+html[data-theme="dark"] .skill-install-result,
+html[data-theme="dark"] .market-note {
+  border-color: #39433b;
+}
