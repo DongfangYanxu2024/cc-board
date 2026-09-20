@@ -15,7 +15,7 @@ async function requestApproval(args) {
 readline.createInterface({ input: process.stdin }).on('line', async line => {
   let m; try { m = JSON.parse(line); } catch { return; }
   if (m.id === undefined) return;
-  if (m.method === 'initialize') return respond(m.id, { protocolVersion: m.params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'cc-board-permissions', version: process.env.CCB_VERSION || '0.2.0' } });
+  if (m.method === 'initialize') return respond(m.id, { protocolVersion: m.params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'cc-board-permissions', version: process.env.CCB_VERSION || '0.3.0' } });
   if (m.method === 'ping') return respond(m.id, {});
   if (m.method === 'tools/list') return respond(m.id, { tools: [{ name: 'approve', description: 'Ask the user to approve a Claude Code tool call.', inputSchema: { type: 'object', properties: { tool_name: { type: 'string' }, input: { type: 'object', additionalProperties: true } }, required: ['tool_name', 'input'] } }] });
   if (m.method === 'tools/call' && m.params?.name === 'approve') {

@@ -2,7 +2,7 @@
 
 cc-board 是一个面向 Claude Code 新用户的 Windows 图形界面。它不重写智能体，也不代理终端输出：任务仍由本机安装的原版 Claude Code 执行，cc-board 负责把流式对话、工具调用、权限请求和历史记录映射到统一界面。
 
-> 当前版本为 `0.2.0` 预览版。建议先在测试项目中使用并保留重要文件的版本控制或备份。
+> 当前版本为 `0.3.0` 预览版。建议先在测试项目中使用并保留重要文件的版本控制或备份。
 
 ## 已实现
 
@@ -22,7 +22,7 @@ cc-board 是一个面向 Claude Code 新用户的 Windows 图形界面。它不�
 
 ## 安装和首次使用
 
-1. 从 GitHub Releases 下载 `cc-board-Setup-0.2.0.exe` 并安装。
+1. 从 GitHub Releases 下载 `cc-board-Setup-0.3.0.exe` 并安装。
 2. 打开“设置与环境”，检测 Claude Code。没有安装时可点击“安装官方版本”。
 3. 使用 Anthropic 官方账户时点击“登录 Claude”，在浏览器完成登录。使用兼容服务商时可跳过官方登录。
 4. 打开“模型与服务商”，点击“导入 CC Switch”，或手动添加兼容 Anthropic Messages 协议的服务商。
