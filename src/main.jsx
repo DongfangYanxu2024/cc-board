@@ -31,8 +31,10 @@ import {
   Copy,
   Trash2,
   FolderPlus,
+  Store,
 } from "lucide-react";
 import "./style.css";
+import SkillsPage from "./SkillsPage.jsx";
 
 const api = window.board;
 const modes = {
@@ -60,7 +62,8 @@ function App() {
     [installLog, setInstallLog] = useState("");
   const [showArchived, setArchived] = useState(false),
     [menu, setMenu] = useState(false),
-    [rename, setRename] = useState(null);
+    [rename, setRename] = useState(null),
+    [riskRequest, setRiskRequest] = useState(null);
   const [form, setForm] = useState({
     name: "",
     baseUrl: "",
@@ -142,13 +145,16 @@ function App() {
     return () => clearTimeout(t);
   }, [notice]);
   useEffect(() => {
-    if (rename === null) return;
+    if (rename === null && riskRequest === null) return;
     const close = (event) => {
-      if (event.key === "Escape") setRename(null);
+      if (event.key === "Escape") {
+        setRename(null);
+        setRiskRequest(null);
+      }
     };
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
-  }, [rename]);
+  }, [rename, riskRequest]);
   useEffect(() => {
     if (!menu) return;
     const close = (event) => {
@@ -186,17 +192,43 @@ function App() {
         if (!sid) return;
         select(sid);
       }
-      const result = await call("start", {
+      const request = {
         sessionId: sid,
         prompt,
         mode,
         providerId,
         model,
-      });
+      };
+      if (mode === "bypassPermissions") {
+        setRiskRequest(request);
+        return;
+      }
+      const result = await call("start", request);
       if (result?.started) setPrompt("");
     } finally {
       setBusy(false);
     }
+  }
+  async function confirmBypass() {
+    if (!riskRequest || busy || running) return;
+    setBusy(true);
+    try {
+      const result = await call("start", {
+        ...riskRequest,
+        bypassConfirmed: true,
+      });
+      if (result?.started) {
+        setPrompt("");
+        setRiskRequest(null);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+  function useCommand(command) {
+    setPrompt(command + " ");
+    setView("chat");
+    setTimeout(() => input.current?.focus(), 0);
   }
   async function stop() {
     await call("stop");
@@ -397,6 +429,12 @@ function App() {
         </div>
         <div className="sidebar-bottom">
           <button
+            className={view === "skills" ? "nav active" : "nav"}
+            onClick={() => setView("skills")}
+          >
+            <Store size={17} /> 技能商场
+          </button>
+          <button
             className={view === "providers" ? "nav active" : "nav"}
             onClick={() => setView("providers")}
           >
@@ -424,7 +462,9 @@ function App() {
                 ? session?.title || "新对话"
                 : view === "providers"
                   ? "模型与服务商"
-                  : "设置与环境"}
+                  : view === "skills"
+                    ? "技能商场"
+                    : "设置与环境"}
             </strong>
           </div>
           <div className="header-actions">
@@ -984,6 +1024,8 @@ function App() {
               </div>
             </form>
           </div>
+        ) : view === "skills" ? (
+          <SkillsPage call={call} useCommand={useCommand} />
         ) : (
           <div className="page">
             <div className="eyebrow">为第一次使用做好准备</div>
@@ -1151,6 +1193,48 @@ function App() {
           >
             <X size={16} />
           </button>
+        </div>
+      )}
+      {riskRequest !== null && (
+        <div className="modal-overlay risk-overlay">
+          <form
+            className="modal risk-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="risk-title"
+            onSubmit={(event) => {
+              event.preventDefault();
+              confirmBypass();
+            }}
+          >
+            <div className="risk-icon"><Shield size={24} /></div>
+            <div>
+              <div className="eyebrow">仅确认本次运行</div>
+              <h2 id="risk-title">开启完全自动模式？</h2>
+            </div>
+            <p>
+              Claude Code 将跳过逐项工具审批，可以执行命令、修改或删除文件并联网。
+              工作文件夹不是安全沙箱，关闭或停止也不会撤销已经完成的操作。
+            </p>
+            <div className="risk-list">
+              <span>可能造成数据丢失</span>
+              <span>可能发送敏感信息</span>
+              <span>可能产生额外费用</span>
+            </div>
+            <div className="button-row">
+              <button
+                autoFocus
+                type="button"
+                className="secondary"
+                onClick={() => setRiskRequest(null)}
+              >
+                取消
+              </button>
+              <button className="danger-confirm" disabled={busy || running}>
+                {busy ? "正在启动…" : "我了解风险，开启本次运行"}
+              </button>
+            </div>
+          </form>
         </div>
       )}
       {rename !== null && (

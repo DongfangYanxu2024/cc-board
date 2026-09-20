@@ -21,6 +21,9 @@ const {
   MODES,
   providerEnv,
   isNewerVersion,
+  skillSearchQuery,
+  normalizeGitHubRepository,
+  isSkillRepository,
   id,
 } = require("./core.cjs");
 const exec = promisify(execFile);
@@ -41,6 +44,13 @@ let win,
 const pending = new Map();
 const home = os.homedir();
 const releasesPage = "https://github.com/DongfangYanxu2024/cc-board/releases";
+const githubApiHeaders = {
+  accept: "application/vnd.github+json",
+  "x-github-api-version": "2022-11-28",
+  "user-agent": `cc-board/${app.getVersion()}`,
+};
+const skillSearchCache = new Map();
+let featuredSkillCache = null;
 function persist() {
   if (db && state)
     db.prepare("INSERT OR REPLACE INTO state(id, payload) VALUES (1, ?)").run(
@@ -265,6 +275,93 @@ async function checkUpdate() {
     url: latest.html_url || releasesPage,
   };
 }
+async function githubJson(url) {
+  let response;
+  try {
+    response = await fetch(url, {
+      headers: githubApiHeaders,
+      redirect: "error",
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch {
+    throw Error("无法连接 GitHub，请检查网络后重试");
+  }
+  if (response.status === 403 || response.status === 429)
+    throw Error("GitHub 搜索次数暂时受限，请稍后再试");
+  if (!response.ok)
+    throw Error(`GitHub 返回 HTTP ${response.status}，请稍后重试`);
+  return response.json();
+}
+async function searchSkills(data = {}) {
+  const displayQuery = String(data.query || "").trim().slice(0, 80);
+  if (process.env.CCB_SMOKE_SKILLS === "1")
+    return {
+      query: displayQuery,
+      results: [
+        {
+          id: 1,
+          fullName: "anthropics/skills",
+          description: "Anthropic official skill examples",
+          url: "https://github.com/anthropics/skills",
+          stars: 42000,
+          forks: 3900,
+          updatedAt: "2026-01-01T00:00:00Z",
+          language: "Python",
+          license: "Apache-2.0",
+          topics: ["skills", "claude-code"],
+          official: true,
+        },
+      ],
+    };
+  const minimumStars = Number(data.minimumStars);
+  const query = skillSearchQuery(data.query, minimumStars);
+  const cacheKey = query.toLowerCase();
+  const cached = skillSearchCache.get(cacheKey);
+  if (cached && Date.now() - cached.time < 5 * 60 * 1000) return cached.value;
+  const params = new URLSearchParams({
+    q: query,
+    sort: "stars",
+    order: "desc",
+    per_page: "24",
+  });
+  const payload = await githubJson(
+    `https://api.github.com/search/repositories?${params}`,
+  );
+  const repositories = Array.isArray(payload.items) ? payload.items : [];
+  if (!displayQuery) {
+    try {
+      if (!featuredSkillCache || Date.now() - featuredSkillCache.time >= 10 * 60 * 1000) {
+        const featuredParams = new URLSearchParams({
+          q: "org:anthropics skills in:name,description,readme",
+          sort: "stars",
+          order: "desc",
+          per_page: "10",
+        });
+        const featured = await githubJson(
+          `https://api.github.com/search/repositories?${featuredParams}`,
+        );
+        featuredSkillCache = {
+          time: Date.now(),
+          items: Array.isArray(featured.items) ? featured.items : [],
+        };
+      }
+      repositories.push(...featuredSkillCache.items);
+    } catch {
+      // The general results are still useful when GitHub throttles this optional
+      // official-source lookup.
+    }
+  }
+  const results = repositories
+    .map(normalizeGitHubRepository)
+    .filter(isSkillRepository)
+    .filter(
+      (repo, index, all) =>
+        repo && all.findIndex((item) => item?.fullName === repo.fullName) === index,
+    );
+  const value = { results, query: displayQuery };
+  skillSearchCache.set(cacheKey, { time: Date.now(), value });
+  return value;
+}
 function safeUrl(value) {
   const u = new URL(value);
   if (
@@ -475,17 +572,8 @@ async function startRun(data) {
   const mode = data.mode;
   if (!MODES.includes(mode)) throw Error("权限模式无效");
   if (mode === "bypassPermissions") {
-    const answer = await dialog.showMessageBox(win, {
-      type: "warning",
-      title: "开启完全自动模式",
-      message: "允许本次运行跳过 Claude Code 的工具审批？",
-      detail:
-        "智能体可以执行命令、修改或删除文件及联网，可能造成数据丢失、信息泄露和额外费用。工作文件夹不是安全沙箱。系统与组织权限仍然有效。关闭或停止不会撤销已执行的操作。",
-      buttons: ["取消", "我了解风险，开启本次运行"],
-      defaultId: 0,
-      cancelId: 0,
-    });
-    if (answer.response !== 1) return { cancelled: true };
+    if (data.bypassConfirmed !== true)
+      throw Error("完全自动模式需要在风险确认窗口中明确确认");
   }
   const profile = state.providers.find((p) => p.id === data.providerId);
   if (data.providerId !== "native" && !profile) throw Error("服务商不存在");
@@ -961,7 +1049,24 @@ const actions = {
   installCli,
   authLogin,
   checkUpdate,
+  searchSkills,
   openReleases: () => shell.openExternal(releasesPage),
+  openGitHub: (data) => {
+    const url = new URL(String(data.url || ""));
+    if (
+      url.protocol !== "https:" ||
+      url.hostname !== "github.com" ||
+      url.username ||
+      url.password ||
+      url.port
+    )
+      throw Error("只能打开 GitHub 仓库链接");
+    return shell.openExternal(url.toString());
+  },
+  commandDocs: () =>
+    shell.openExternal("https://code.claude.com/docs/zh-CN/commands"),
+  skillDocs: () =>
+    shell.openExternal("https://code.claude.com/docs/zh-CN/skills"),
   docs: () => shell.openExternal("https://code.claude.com/docs/en/setup"),
   exportSession: async (data) => {
     const s = state.sessions.find((s) => s.id === data.id);
@@ -1061,6 +1166,37 @@ async function runDesktopSmoke(index) {
       !loadedState.sessions.some((item) => item.id === ui.sessionId)
     )
       fail("历史记录重载失败");
+    let skillsUi = null;
+    if (process.env.CCB_SMOKE_SKILLS === "1") {
+      skillsUi = await win.webContents.executeJavaScript(`(async () => {
+        const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+        const button = text => [...document.querySelectorAll('button')].find(node => node.textContent.includes(text));
+        button('技能商场')?.click(); await wait(120);
+        const marketVisible = Boolean(document.querySelector('input[aria-label="搜索 GitHub Skills"]'));
+        const officialVisible = document.body.innerText.includes('anthropics/skills');
+        button('/plan')?.click(); await wait(40);
+        const commandFilled = document.querySelector('textarea[aria-label="消息输入框"]')?.value.startsWith('/plan');
+        const textarea = document.querySelector('textarea[aria-label="消息输入框"]');
+        const inputSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+        inputSetter.call(textarea, '最高权限弹窗鼠标测试');
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        const permission = document.querySelector('select[aria-label="权限模式"]');
+        const selectSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
+        selectSetter.call(permission, 'bypassPermissions');
+        permission.dispatchEvent(new Event('change', { bubbles: true }));
+        await wait(40);
+        document.querySelector('button[aria-label="发送消息"]')?.click();
+        await wait(80);
+        const riskVisible = Boolean(document.querySelector('.risk-modal'));
+        document.querySelector('.risk-modal .secondary')?.click();
+        button('技能商场')?.click(); await wait(80);
+        return { marketVisible, officialVisible, commandFilled, riskVisible };
+      })()`);
+      if (!skillsUi.marketVisible || !skillsUi.officialVisible)
+        fail("技能商场或 GitHub 搜索结果未显示");
+      if (!skillsUi.commandFilled) fail("原生指令未填入消息框");
+      if (!skillsUi.riskVisible) fail("完全自动模式风险确认窗未显示");
+    }
     let nativeBridge = null;
     if (process.env.CCB_SMOKE_NATIVE === "1") {
       nativeBridge = await win.webContents.executeJavaScript(`(async () => {
@@ -1124,6 +1260,7 @@ async function runDesktopSmoke(index) {
               }
             : null,
           importResult: ui.importResult,
+          skillsUi,
         },
         null,
         2,

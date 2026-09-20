@@ -46,5 +46,45 @@ function isNewerVersion(latest, current) {
   }
   return false;
 }
+function skillSearchQuery(value, minimumStars = 100) {
+  const terms = String(value || "")
+    .normalize("NFKC")
+    .replace(/[^\p{L}\p{N}\s._-]/gu, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 6)
+    .join(" ");
+  const stars = [0, 100, 1000, 10000].includes(Number(minimumStars))
+    ? Number(minimumStars)
+    : 100;
+  return [terms, '"claude skills"', "in:name,description,readme", `stars:>=${stars}`]
+    .filter(Boolean)
+    .join(" ");
+}
+function normalizeGitHubRepository(repo) {
+  if (!repo || typeof repo !== "object" || !repo.full_name || !repo.html_url)
+    return null;
+  return {
+    id: Number(repo.id) || repo.full_name,
+    fullName: String(repo.full_name),
+    description: String(repo.description || "暂无简介").slice(0, 320),
+    url: String(repo.html_url),
+    stars: Number(repo.stargazers_count) || 0,
+    forks: Number(repo.forks_count) || 0,
+    updatedAt: repo.updated_at || null,
+    language: repo.language || null,
+    license: repo.license?.spdx_id || null,
+    topics: Array.isArray(repo.topics) ? repo.topics.slice(0, 8) : [],
+    official: repo.owner?.login === "anthropics",
+  };
+}
+function isSkillRepository(repo) {
+  const text = [repo?.fullName, repo?.description, ...(repo?.topics || [])]
+    .filter(Boolean)
+    .join(" ")
+    .replace(/[_-]/g, " ");
+  return /\bskills?\b/i.test(text);
+}
 function id() { return randomUUID(); }
-module.exports = { lineDecoder, argumentsFor, normalize, MODES, providerEnv, isNewerVersion, id };
+module.exports = { lineDecoder, argumentsFor, normalize, MODES, providerEnv, isNewerVersion, skillSearchQuery, normalizeGitHubRepository, isSkillRepository, id };

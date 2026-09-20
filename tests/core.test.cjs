@@ -6,6 +6,9 @@ const {
   normalize,
   providerEnv,
   isNewerVersion,
+  skillSearchQuery,
+  normalizeGitHubRepository,
+  isSkillRepository,
 } = require("../electron/core.cjs");
 
 test("version comparison accepts release tags and ignores older releases", () => {
@@ -14,6 +17,65 @@ test("version comparison accepts release tags and ignores older releases", () =>
   assert.equal(isNewerVersion("v0.1.0", "0.1.0"), false);
   assert.equal(isNewerVersion("v0.0.9", "0.1.0"), false);
   assert.equal(isNewerVersion("latest", "0.1.0"), false);
+});
+test("skill marketplace search keeps user text as keywords and enforces star presets", () => {
+  assert.equal(
+    skillSearchQuery("React:>0 / hooks", 1000),
+    'React 0 hooks "claude skills" in:name,description,readme stars:>=1000',
+  );
+  assert.equal(
+    skillSearchQuery("", 37),
+    '"claude skills" in:name,description,readme stars:>=100',
+  );
+});
+test("GitHub repositories are reduced to safe marketplace display data", () => {
+  assert.deepEqual(
+    normalizeGitHubRepository({
+      id: 7,
+      full_name: "anthropics/skills",
+      html_url: "https://github.com/anthropics/skills",
+      description: "Official skills",
+      stargazers_count: 123,
+      forks_count: 4,
+      updated_at: "2026-01-01T00:00:00Z",
+      language: "Python",
+      license: { spdx_id: "Apache-2.0" },
+      topics: ["skills"],
+      owner: { login: "anthropics" },
+      clone_url: "should-not-leak",
+    }),
+    {
+      id: 7,
+      fullName: "anthropics/skills",
+      description: "Official skills",
+      url: "https://github.com/anthropics/skills",
+      stars: 123,
+      forks: 4,
+      updatedAt: "2026-01-01T00:00:00Z",
+      language: "Python",
+      license: "Apache-2.0",
+      topics: ["skills"],
+      official: true,
+    },
+  );
+});
+test("skill marketplace excludes repositories that only mention skills in a README", () => {
+  assert.equal(
+    isSkillRepository({
+      fullName: "owner/awesome-mcp-servers",
+      description: "A collection of MCP servers",
+      topics: ["mcp"],
+    }),
+    false,
+  );
+  assert.equal(
+    isSkillRepository({
+      fullName: "owner/ui-design-skill",
+      description: "Design guidance",
+      topics: [],
+    }),
+    true,
+  );
 });
 test("stream framing survives fragmented UTF-8 and trailing lines", () => {
   const events = [],

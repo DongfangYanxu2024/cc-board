@@ -948,6 +948,297 @@ h2 {
 .modal .button-row {
   justify-content: flex-end;
 }
+.page-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 22px;
+  margin-bottom: 28px;
+}
+.page-title-row .page-desc {
+  margin-bottom: 0;
+}
+.skills-page {
+  max-width: 1180px;
+}
+.skills-section {
+  background: #fff;
+  border: 1px solid #e1e6e1;
+  border-radius: 12px;
+  padding: 23px;
+  margin-bottom: 20px;
+}
+.skills-section-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 18px;
+  margin-bottom: 18px;
+  color: #728a7a;
+}
+.skills-section-title h2 {
+  color: #384b3e;
+  margin-bottom: 6px;
+}
+.skills-section-title p {
+  margin: 0;
+  color: #909d93;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.command-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.command-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 11px;
+  align-items: flex-start;
+  text-align: left;
+  background: #fbfcfb;
+  border: 1px solid #e5e9e6;
+  border-radius: 9px;
+  padding: 14px;
+  min-width: 0;
+}
+.command-card:hover {
+  background: #f5f8f5;
+  border-color: #b8c8bd;
+}
+.command-card > span:nth-child(2) {
+  min-width: 0;
+}
+.command-card code,
+.command-card strong,
+.command-card small {
+  display: block;
+}
+.command-card code {
+  color: #567160;
+  font-size: 11px;
+  margin-bottom: 5px;
+}
+.command-card strong {
+  color: #3f4d44;
+  font-size: 12px;
+  margin-bottom: 5px;
+}
+.command-card small {
+  color: #929d96;
+  font-size: 10px;
+  line-height: 1.55;
+}
+.command-card > svg {
+  color: #a4afa7;
+  margin-top: 2px;
+}
+.command-icon,
+.repo-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #edf3ee;
+  color: #698271;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+}
+.skill-search {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  gap: 9px;
+  margin-bottom: 17px;
+}
+.skill-search label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid #dce3dd;
+  border-radius: 7px;
+  background: #fcfdfc;
+  padding: 0 11px;
+  color: #8c9890;
+}
+.skill-search input,
+.skill-search select {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  min-width: 0;
+  font-size: 12px;
+}
+.skill-search input {
+  flex: 1;
+  padding: 10px 0;
+}
+.skill-search select {
+  border: 1px solid #dce3dd;
+  border-radius: 7px;
+  padding: 9px 30px 9px 10px;
+  background: #fff;
+}
+.skill-results {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 11px;
+}
+.skill-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid #e5e9e6;
+  border-radius: 10px;
+  padding: 16px;
+  background: #fdfefd;
+}
+.skill-card-top {
+  display: flex;
+  gap: 11px;
+  min-width: 0;
+}
+.skill-card-top > div:last-child {
+  min-width: 0;
+}
+.skill-card h3 {
+  font-size: 13px;
+  margin: 1px 0 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skill-card > p {
+  color: #7f8b83;
+  font-size: 11px;
+  line-height: 1.65;
+  margin: 13px 0 16px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.repo-meta,
+.repo-topics,
+.skill-card-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.repo-meta {
+  color: #929c95;
+  font-size: 9px;
+}
+.repo-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.official-tag {
+  color: #5d806b;
+  background: #eaf4ec;
+  border-radius: 4px;
+  padding: 2px 5px;
+}
+.skill-card-footer {
+  justify-content: space-between;
+  margin-top: auto;
+  gap: 10px;
+}
+.repo-topics span {
+  color: #728277;
+  background: #f0f3f1;
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 9px;
+}
+.skill-card-footer .secondary {
+  padding: 7px 9px;
+  font-size: 10px;
+  margin-left: auto;
+}
+.market-empty {
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #96a198;
+}
+.market-empty p {
+  font-size: 12px;
+  margin: 12px 0 5px;
+}
+.market-empty small,
+.market-note {
+  color: #a0a8a2;
+  font-size: 10px;
+}
+.market-note {
+  line-height: 1.65;
+  margin: 17px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid #eef1ee;
+}
+.risk-overlay {
+  background: #17231dcc;
+}
+.risk-modal {
+  width: min(480px, calc(100vw - 40px));
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 14px;
+  box-shadow: 0 20px 70px #0b171050;
+}
+.risk-modal h2 {
+  font-size: 18px;
+  margin: 5px 0 0;
+}
+.risk-icon {
+  width: 43px;
+  height: 43px;
+  border-radius: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9b4d42;
+  background: #fff0ed;
+  grid-row: span 1;
+}
+.risk-modal > p,
+.risk-modal > .risk-list,
+.risk-modal > .button-row {
+  grid-column: 1 / -1;
+}
+.risk-modal > p {
+  color: #68736c;
+  font-size: 12px;
+  line-height: 1.75;
+  margin: 20px 0 14px;
+}
+.risk-list {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.risk-list span {
+  color: #925046;
+  background: #fff2f0;
+  border: 1px solid #f4d7d2;
+  border-radius: 5px;
+  padding: 5px 8px;
+  font-size: 10px;
+}
+.danger-confirm {
+  border: 1px solid #994c42;
+  background: #994c42;
+  color: #fff;
+  border-radius: 7px;
+  padding: 9px 13px;
+  font-size: 12px;
+}
 @media (max-width: 1100px) {
   .sidebar {
     width: 220px;
@@ -969,6 +1260,9 @@ h2 {
   }
   .page {
     padding: 30px;
+  }
+  .command-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .composer-footer span:first-child {
     max-width: 55%;

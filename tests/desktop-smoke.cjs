@@ -16,6 +16,7 @@ async function main() {
     CCB_SMOKE_OUTPUT: output,
     CCB_SMOKE_CWD: cwd,
     CCB_SMOKE_KEY: "cc-board-smoke-secret",
+    CCB_SMOKE_SKILLS: "1",
   };
   delete launchEnv.ELECTRON_RUN_AS_NODE;
   const executable = path.join(
@@ -56,6 +57,10 @@ async function main() {
   assert.equal(result.sessionCount, 1);
   assert.equal(result.pinnedSession, true);
   assert.equal(result.keyProtected, true);
+  assert.equal(result.skillsUi?.marketVisible, true);
+  assert.equal(result.skillsUi?.officialVisible, true);
+  assert.equal(result.skillsUi?.commandFilled, true);
+  assert.equal(result.skillsUi?.riskVisible, true);
   assert.ok(fs.existsSync(output.replace(/\.json$/, ".png")), "未生成界面截图");
   console.log(
     "Desktop smoke passed: Electron launch, renderer, IPC, provider state, history reload, graceful exit.",
