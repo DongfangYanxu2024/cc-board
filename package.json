@@ -59,7 +59,10 @@
       "category": "public.app-category.developer-tools",
       "minimumSystemVersion": "13.0.0",
       "darkModeSupport": true,
-      "identity": null,
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": true,
       "artifactName": "cc-board-${version}-mac-${arch}.${ext}"
     },
     "dmg": {

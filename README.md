@@ -30,7 +30,7 @@ cc-board 是一个面向 Claude Code 新用户的 Windows 与 macOS 图形界面
 4. 打开“模型与服务商”，点击“导入 CC Switch”，或手动添加兼容 Anthropic Messages 协议的服务商。
 5. 点击“新建对话”，选择工作台，然后直接描述任务。
 
-Windows 可能对未签名的预览版安装程序显示“未知发布者”或 SmartScreen 提示。macOS 预览包尚未使用 Apple Developer ID 签名和公证，首次打开时可能被 Gatekeeper 阻止；可在“系统设置 → 隐私与安全性”中确认“仍要打开”。公开大范围发布前应配置两个平台的代码签名。
+Windows 可能对未签名的预览版安装程序显示“未知发布者”或 SmartScreen 提示。`v0.4.0` 的 macOS 预览包尚未使用 Apple Developer ID 签名和公证，从浏览器下载后可能被 Gatekeeper 提示“文件已损坏”。仅在确认文件来自本仓库且 SHA-256 与发布页一致后，可先把 `cc-board.app` 拖入“应用程序”，再在“终端”执行 `xattr -dr com.apple.quarantine /Applications/cc-board.app`，然后重新打开。后续正式 macOS 标签在缺少签名和公证密钥时会停止发布，避免再次上传无法正常打开的安装包。
 
 ## Claude Code 与 CC Switch 的关系
 
