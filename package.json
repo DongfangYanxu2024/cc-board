@@ -14,8 +14,8 @@
     "test:desktop-native": "npm run build && node tests/desktop-native.cjs",
     "test:native": "node tests/native-bridge.cjs",
     "dist": "npm run dist:win",
-    "dist:win": "npm run build && electron-builder --win nsis --x64",
-    "dist:mac": "npm run build && electron-builder --mac dmg zip",
+    "dist:win": "npm run build && electron-builder --win nsis --x64 --publish never",
+    "dist:mac": "npm run build && electron-builder --mac dmg zip --publish never",
     "pack": "npm run build && electron-builder --dir --win --x64",
     "pack:mac": "npm run build && electron-builder --dir --mac"
   },
