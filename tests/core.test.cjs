@@ -117,6 +117,16 @@ test("dependency installers use fixed official sources without shell interpolati
   const claude = installPlan("claude");
   assert.equal(claude.command, "powershell.exe");
   assert.match(claude.args.at(-1), /^irm https:\/\/claude\.ai\/install\.ps1/);
+  const macClaude = installPlan("claude", { platform: "darwin" });
+  assert.equal(macClaude.command, "/bin/bash");
+  assert.equal(macClaude.args[0], "-lc");
+  assert.match(macClaude.args[1], /^curl -fsSL https:\/\/claude\.ai\/install\.sh/);
+  const macGit = installPlan("git", {
+    platform: "darwin",
+    packageManagerPath: "/opt/homebrew/bin/brew",
+  });
+  assert.deepEqual(macGit.args, ["install", "git"]);
+  assert.equal(macGit.manualUrl, "https://git-scm.com/download/mac");
   assert.throws(() => installPlan("unknown"));
 });
 test("stream framing survives fragmented UTF-8 and trailing lines", () => {

@@ -2,6 +2,7 @@ const { spawn } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
 const assert = require("node:assert/strict");
+const { electronPath } = require("./platform-paths.cjs");
 
 async function main() {
   const root = path.resolve(__dirname, "..");
@@ -37,13 +38,7 @@ async function main() {
     CCB_TEST_CC_SWITCH_DIR: ccSwitchDir,
   };
   delete launchEnv.ELECTRON_RUN_AS_NODE;
-  const executable = path.join(
-    root,
-    "node_modules",
-    "electron",
-    "dist",
-    "electron.exe",
-  );
+  const executable = electronPath();
   const child = spawn(executable, [root], {
     cwd: root,
     env: launchEnv,

@@ -6,6 +6,7 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 const assert = require("node:assert/strict");
 const { lineDecoder, argumentsFor } = require("../electron/core.cjs");
+const { nativeClaudePath } = require("./platform-paths.cjs");
 const root = path.resolve(__dirname, "..");
 async function main() {
   const cwd = path.join(root, "work", "native-test-" + Date.now());
@@ -128,10 +129,7 @@ async function main() {
       },
     },
   };
-  const cli = path.join(
-    root,
-    "work/native-cli/node_modules/@anthropic-ai/claude-code-win32-x64/claude.exe",
-  );
+  const cli = nativeClaudePath(root);
   const env = {
     ...process.env,
     CLAUDE_CONFIG_DIR: path.join(cwd, "config"),
@@ -140,8 +138,9 @@ async function main() {
     ANTHROPIC_AUTH_TOKEN: "",
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
     DISABLE_AUTOUPDATER: "1",
-    CLAUDE_CODE_GIT_BASH_PATH: "D:\\Program Files\\Git\\bin\\bash.exe",
   };
+  if (process.platform === "win32")
+    env.CLAUDE_CODE_GIT_BASH_PATH = "D:\\Program Files\\Git\\bin\\bash.exe";
   delete env.CLAUDECODE;
   delete env.ELECTRON_RUN_AS_NODE;
   const args = argumentsFor({

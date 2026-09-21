@@ -28,16 +28,15 @@ const {
   skillSearchQuery,
   normalizeGitHubRepository,
   isSkillRepository,
-  dependencyDownloadUrls,
   installPlan,
   id,
 } = require("./core.cjs");
 const exec = promisify(execFile);
 if (process.env.CCB_TEST_USER_DATA)
   app.setPath("userData", process.env.CCB_TEST_USER_DATA);
-// The UI has no GPU-heavy content. Software rendering avoids driver crashes on older
-// and virtualized Windows machines, which are common among the app's target users.
-app.disableHardwareAcceleration();
+// Software rendering avoids driver crashes on older and virtualized Windows machines.
+// Keep native acceleration on macOS so window composition and Retina scrolling remain smooth.
+if (process.platform === "win32") app.disableHardwareAcceleration();
 let win,
   db,
   state,
@@ -199,7 +198,15 @@ async function validateCli(candidate) {
 async function findCli() {
   const localAppData = process.env.LOCALAPPDATA || "";
   const appData = process.env.APPDATA || "";
-  const candidates = [
+  const candidates = (process.platform === "darwin" ? [
+    process.env.CCB_TEST_CLI_PATH,
+    state.settings.cliPath,
+    path.join(home, ".local", "bin", "claude"),
+    path.join(home, ".claude", "local", "claude"),
+    path.join(home, ".npm-global", "bin", "claude"),
+    "/opt/homebrew/bin/claude",
+    "/usr/local/bin/claude",
+  ] : [
     process.env.CCB_TEST_CLI_PATH,
     state.settings.cliPath,
     path.join(home, ".local", "bin", "claude.exe"),
@@ -208,9 +215,10 @@ async function findCli() {
     localAppData && path.join(localAppData, "Microsoft", "WinGet", "Links", "claude.exe"),
     appData && path.join(appData, "npm", "claude.exe"),
     appData && path.join(appData, "npm", "claude.cmd"),
-  ].filter(Boolean);
+  ]).filter(Boolean);
+  const lookup = process.platform === "win32" ? "where.exe" : "/usr/bin/which";
   try {
-    const r = await exec("where.exe", ["claude"], {
+    const r = await exec(lookup, ["claude"], {
       windowsHide: true,
       timeout: 5000,
     });
@@ -229,8 +237,9 @@ async function findCli() {
 }
 async function detectExecutable(command, args, candidates = []) {
   const paths = candidates.filter(Boolean);
+  const lookup = process.platform === "win32" ? "where.exe" : "/usr/bin/which";
   try {
-    const found = await exec("where.exe", [command], {
+    const found = await exec(lookup, [command], {
       windowsHide: true,
       timeout: 5000,
     });
@@ -252,7 +261,7 @@ async function detectExecutable(command, args, candidates = []) {
     } catch (error) {
       if (fs.existsSync(executable))
         detectedError = {
-          installed: true,
+          installed: false,
           path: executable,
           version: null,
           error: redact(error.message),
@@ -264,19 +273,23 @@ async function detectExecutable(command, args, candidates = []) {
 async function environment() {
   const programFiles = process.env.ProgramFiles || "C:\\Program Files";
   const localAppData = process.env.LOCALAPPDATA || "";
-  const [cli, git, node, winget] = await Promise.all([
+  const mac = process.platform === "darwin";
+  const [cli, git, node, winget, homebrew] = await Promise.all([
     findCli(),
-    detectExecutable("git", ["--version"], [
-      path.join(programFiles, "Git", "cmd", "git.exe"),
-    ]),
-    detectExecutable("node", ["--version"], [
-      path.join(programFiles, "nodejs", "node.exe"),
-    ]),
+    detectExecutable("git", ["--version"], mac
+      ? ["/usr/bin/git", "/opt/homebrew/bin/git", "/usr/local/bin/git"]
+      : [path.join(programFiles, "Git", "cmd", "git.exe")]),
+    detectExecutable("node", ["--version"], mac
+      ? ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"]
+      : [path.join(programFiles, "nodejs", "node.exe")]),
     detectExecutable("winget", ["--version"], [
-      localAppData
+      !mac && localAppData
         ? path.join(localAppData, "Microsoft", "WindowsApps", "winget.exe")
         : "",
     ]),
+    detectExecutable("brew", ["--version"], mac
+      ? ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
+      : []),
   ]);
   let version = null,
     error = null,
@@ -311,7 +324,15 @@ async function environment() {
     version,
     auth,
     error,
-    dependencies: { git, node, winget },
+    platform: process.platform,
+    arch: process.arch,
+    dependencies: {
+      git,
+      node,
+      winget,
+      homebrew,
+      packageManager: mac ? homebrew : winget,
+    },
     ccSwitch: ccSwitchDatabasePaths().some(fs.existsSync),
     dataPath: app.getPath("userData"),
   };
@@ -501,6 +522,45 @@ function copySkillFolder(source, target) {
     filter: allowed,
   });
 }
+function validateExtractedArchive(root) {
+  let files = 0;
+  let bytes = 0;
+  const visit = (directory) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const item = path.join(directory, entry.name);
+      const stat = fs.lstatSync(item);
+      if (stat.isSymbolicLink()) throw Error("Skill 仓库不能包含符号链接");
+      files += 1;
+      if (files > 5000) throw Error("仓库文件数量超过限制");
+      if (stat.isFile()) {
+        bytes += stat.size;
+        if (bytes > 100 * 1024 * 1024) throw Error("仓库解压后超过 100 MB");
+      } else if (stat.isDirectory()) visit(item);
+    }
+  };
+  visit(root);
+}
+async function extractSkillArchive(zip, extracted) {
+  if (process.platform === "darwin") {
+    fs.mkdirSync(extracted, { recursive: true });
+    await exec("/usr/bin/ditto", ["-x", "-k", zip, extracted], {
+      timeout: 120000,
+    });
+  } else {
+    await exec(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-Command",
+        "Add-Type -AssemblyName System.IO.Compression.FileSystem; $archive = [IO.Compression.ZipFile]::OpenRead($args[0]); try { if ($archive.Entries.Count -gt 5000) { throw '仓库文件数量超过限制' }; $total = ($archive.Entries | Measure-Object -Property Length -Sum).Sum; if ($total -gt 104857600) { throw '仓库解压后超过 100 MB' } } finally { $archive.Dispose() }; Expand-Archive -LiteralPath $args[0] -DestinationPath $args[1] -Force",
+        zip,
+        extracted,
+      ],
+      { windowsHide: true, timeout: 120000 },
+    );
+  }
+  validateExtractedArchive(extracted);
+}
 async function installSkillRepository(data = {}) {
   const fullName = safeSkillRepository(data.fullName);
   const repo = await githubJson(`https://api.github.com/repos/${fullName}`);
@@ -531,17 +591,7 @@ async function installSkillRepository(data = {}) {
   const extracted = path.join(temporary, "extracted");
   try {
     fs.writeFileSync(zip, archive);
-    await exec(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-Command",
-        "Add-Type -AssemblyName System.IO.Compression.FileSystem; $archive = [IO.Compression.ZipFile]::OpenRead($args[0]); try { if ($archive.Entries.Count -gt 5000) { throw '仓库文件数量超过限制' }; $total = ($archive.Entries | Measure-Object -Property Length -Sum).Sum; if ($total -gt 104857600) { throw '仓库解压后超过 100 MB' } } finally { $archive.Dispose() }; Expand-Archive -LiteralPath $args[0] -DestinationPath $args[1] -Force",
-        zip,
-        extracted,
-      ],
-      { windowsHide: true, timeout: 120000 },
-    );
+    await extractSkillArchive(zip, extracted);
     const roots = fs
       .readdirSync(extracted, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
@@ -622,6 +672,9 @@ function ccSwitchRoots() {
   if (process.env.HOME) roots.push(path.join(process.env.HOME, ".cc-switch"));
   const pathFiles = [
     path.join(home, ".cc-switch", "app_paths.json"),
+    path.join(home, "Library", "Application Support", "com.ccswitch.desktop", "app_paths.json"),
+    path.join(home, "Library", "Application Support", "CC Switch", "app_paths.json"),
+    path.join(home, "Library", "Application Support", "cc-switch", "app_paths.json"),
     process.env.APPDATA && path.join(process.env.APPDATA, "com.ccswitch.desktop", "app_paths.json"),
     process.env.APPDATA && path.join(process.env.APPDATA, "CC Switch", "app_paths.json"),
     process.env.APPDATA && path.join(process.env.APPDATA, "cc-switch", "app_paths.json"),
@@ -852,7 +905,7 @@ async function startRun(data) {
     throw Error("工作台不存在，请重新选择");
   const cli = await findCli();
   if (!cli)
-    throw Error("未检测到原生 Claude Code。请在设置中安装或选择 claude.exe。");
+    throw Error("未检测到原生 Claude Code。请在设置中安装或选择 Claude Code 程序。");
   const mode = data.mode;
   if (!MODES.includes(mode)) throw Error("权限模式无效");
   if (mode === "bypassPermissions") {
@@ -941,7 +994,7 @@ async function startRun(data) {
       s.title = prompt.slice(0, 32);
     message(s, "user", prompt);
     message(s, "audit", `本次运行：${profile?.name || "原生配置"} · ${mode}`);
-    if (!env.CLAUDE_CODE_GIT_BASH_PATH) {
+    if (process.platform === "win32" && !env.CLAUDE_CODE_GIT_BASH_PATH) {
       const git = await detectExecutable("git", ["--version"], [
         path.join(process.env.ProgramFiles || "C:\\Program Files", "Git", "cmd", "git.exe"),
       ]);
@@ -955,6 +1008,7 @@ async function startRun(data) {
       env,
       windowsHide: true,
       shell: false,
+      detached: process.platform !== "win32",
       stdio: ["pipe", "pipe", "pipe"],
     });
     current.child = child;
@@ -1054,14 +1108,31 @@ async function stopRun() {
   current.stopping = true;
   for (const p of [...pending.values()]) p.finish(false, "用户停止任务");
   if (current.child?.pid) {
-    try {
-      await exec(
-        "taskkill.exe",
-        ["/PID", String(current.child.pid), "/T", "/F"],
-        { windowsHide: true, timeout: 10000 },
-      );
-    } catch {
-      current.child.kill();
+    if (process.platform === "win32") {
+      try {
+        await exec(
+          "taskkill.exe",
+          ["/PID", String(current.child.pid), "/T", "/F"],
+          { windowsHide: true, timeout: 10000 },
+        );
+      } catch {
+        current.child.kill();
+      }
+    } else {
+      try {
+        process.kill(-current.child.pid, "SIGTERM");
+      } catch {
+        current.child.kill("SIGTERM");
+      }
+      const child = current.child;
+      setTimeout(() => {
+        if (child.exitCode !== null) return;
+        try {
+          process.kill(-child.pid, "SIGKILL");
+        } catch {
+          child.kill("SIGKILL");
+        }
+      }, 3000).unref();
     }
   }
   // Do not report idle until the process close event confirms termination.
@@ -1078,9 +1149,16 @@ async function installDependency(data = {}) {
   if (installProcess) throw Error("另一个安装任务正在进行中");
   const target = String(data.target || "");
   const current = await environment();
-  const plan = installPlan(target, current.dependencies.winget.path || "");
+  const plan = installPlan(target, {
+    platform: current.platform,
+    packageManagerPath: current.dependencies.packageManager?.path || "",
+  });
   if (!plan.command) return { manual: true, url: plan.manualUrl };
-  const names = { claude: "Claude Code", git: "Git for Windows", node: "Node.js LTS" };
+  const names = {
+    claude: "Claude Code",
+    git: process.platform === "win32" ? "Git for Windows" : "Git",
+    node: "Node.js LTS",
+  };
   emit("install", {
     target,
     status: "running",
@@ -1195,15 +1273,17 @@ const actions = {
     return r.canceled ? null : r.filePaths[0];
   },
   pickCli: async () => {
-    const r = await dialog.showOpenDialog(win, {
+    const options = {
       title: "选择 Claude Code 程序",
       buttonLabel: "验证并连接",
-      filters: [{ name: "Claude Code", extensions: ["exe", "cmd"] }],
       properties: ["openFile"],
-    });
+    };
+    if (process.platform === "win32")
+      options.filters = [{ name: "Claude Code", extensions: ["exe", "cmd"] }];
+    const r = await dialog.showOpenDialog(win, options);
     if (!r.canceled) {
       const verified = await validateCli(r.filePaths[0]);
-      if (!verified) throw Error("所选文件不是可正常运行的 Claude Code，请重新选择 claude.exe");
+      if (!verified) throw Error("所选文件不是可正常运行的 Claude Code，请重新选择");
       state.settings.cliPath = verified.displayPath;
       persist();
     }
@@ -1361,9 +1441,10 @@ const actions = {
   installCli,
   installDependency,
   openDependencyDownload: (data) => {
-    const url = dependencyDownloadUrls[String(data.target || "")];
-    if (!url) throw Error("不支持的下载项目");
-    return shell.openExternal(url);
+    const plan = installPlan(String(data.target || ""), {
+      platform: process.platform,
+    });
+    return shell.openExternal(plan.manualUrl);
   },
   authLogin,
   checkUpdate,

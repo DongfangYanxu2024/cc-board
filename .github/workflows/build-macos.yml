@@ -1,0 +1,77 @@
+name: Build macOS
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: macOS ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Install official Claude Code test binary
+        run: |
+          npm install --prefix work/native-cli @anthropic-ai/claude-code-darwin-${{ matrix.arch }} --ignore-scripts
+          chmod +x work/native-cli/node_modules/@anthropic-ai/claude-code-darwin-${{ matrix.arch }}/claude
+      - name: Unit tests
+        run: npm test
+      - name: Desktop smoke test
+        run: npm run test:desktop
+      - name: Native Claude Code bridge test
+        run: npm run test:native
+      - name: Desktop native bridge test
+        run: npm run test:desktop-native
+      - name: Build DMG and ZIP
+        run: npm run dist:mac -- --${{ matrix.arch }}
+      - name: Create checksums
+        run: shasum -a 256 release/*.dmg release/*.zip > release/SHA256SUMS-macos-${{ matrix.arch }}.txt
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cc-board-macos-${{ matrix.arch }}-${{ github.sha }}
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/SHA256SUMS-macos-${{ matrix.arch }}.txt
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cc-board-macos-*-${{ github.sha }}
+          path: release
+          merge-multiple: true
+      - name: Publish tagged release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 || gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --verify-tag --generate-notes || true
+          gh release upload "${GITHUB_REF_NAME}" release/* --repo "${GITHUB_REPOSITORY}" --clobber

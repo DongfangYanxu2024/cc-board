@@ -19,6 +19,7 @@ export default function SetupGuide({
   installState,
 }) {
   const dependencies = env?.dependencies || {};
+  const isMac = env?.platform === "darwin";
   const items = [
     {
       id: "claude",
@@ -32,13 +33,15 @@ export default function SetupGuide({
     },
     {
       id: "git",
-      name: "Git for Windows",
+      name: isMac ? "Git" : "Git for Windows",
       icon: GitBranch,
       installed: Boolean(dependencies.git?.installed),
       version: dependencies.git?.version,
       path: dependencies.git?.path,
       label: "推荐",
-      description: "Claude Code 可使用 Git Bash 和版本控制；未安装时会回退到 PowerShell。",
+      description: isMac
+        ? "Claude Code 可使用 Git 进行版本控制；可通过 Homebrew 自动安装。"
+        : "Claude Code 可使用 Git Bash 和版本控制；未安装时会回退到 PowerShell。",
     },
     {
       id: "node",
@@ -89,7 +92,7 @@ export default function SetupGuide({
           const active = installState.target === item.id;
           const failed = active && installState.status === "error";
           const canAutoInstall =
-            item.id === "claude" || Boolean(dependencies.winget?.installed);
+            item.id === "claude" || Boolean(dependencies.packageManager?.installed);
           return (
             <article className="dependency-card" key={item.id}>
               <span className={"dependency-icon " + (item.installed ? "ready" : "")}>
@@ -143,7 +146,7 @@ export default function SetupGuide({
                       if (result) setEnv(result);
                     }}
                   >
-                    选择已有 claude.exe
+                    选择已有 Claude Code 程序
                   </button>
                 )}
                 {item.id === "claude" && item.installed && !env?.auth?.loggedIn && (
@@ -169,9 +172,11 @@ export default function SetupGuide({
         })}
       </div>
 
-      {!dependencies.winget?.installed && (
+      {!dependencies.packageManager?.installed && (
         <div className="setup-note">
-          当前未检测到 Windows 程序包管理器 WinGet，因此 Git 与 Node.js 提供官方下载入口。
+          {isMac
+            ? "当前未检测到 Homebrew，因此 Git 与 Node.js 提供官方下载入口。"
+            : "当前未检测到 Windows 程序包管理器 WinGet，因此 Git 与 Node.js 提供官方下载入口。"}
         </div>
       )}
       <div className="setup-note optional">

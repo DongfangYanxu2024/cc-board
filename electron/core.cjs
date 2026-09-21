@@ -136,13 +136,30 @@ function isSkillRepository(repo) {
 }
 const dependencyDownloadUrls = {
   claude: "https://code.claude.com/docs/en/setup",
-  git: "https://git-scm.com/install/windows",
+  git: "https://git-scm.com/downloads",
   node: "https://nodejs.org/en/download",
 };
-function installPlan(target, wingetPath = "") {
+function installPlan(target, options = "") {
   if (!Object.hasOwn(dependencyDownloadUrls, target))
     throw Error("不支持的安装项目");
-  if (target === "claude")
+  const legacyWinget = typeof options === "string";
+  const platform = legacyWinget ? "win32" : options.platform || process.platform;
+  const packageManagerPath = legacyWinget
+    ? options
+    : String(options.packageManagerPath || "");
+  const manualUrl =
+    target === "git" && platform === "win32"
+      ? "https://git-scm.com/install/windows"
+      : target === "git" && platform === "darwin"
+        ? "https://git-scm.com/download/mac"
+        : dependencyDownloadUrls[target];
+  if (target === "claude") {
+    if (platform === "darwin")
+      return {
+        command: "/bin/bash",
+        args: ["-lc", "curl -fsSL https://claude.ai/install.sh | bash"],
+        manualUrl,
+      };
     return {
       command: "powershell.exe",
       args: [
@@ -152,13 +169,20 @@ function installPlan(target, wingetPath = "") {
         "-Command",
         "irm https://claude.ai/install.ps1 | iex",
       ],
-      manualUrl: dependencyDownloadUrls.claude,
+      manualUrl,
     };
-  if (!wingetPath)
-    return { command: null, args: [], manualUrl: dependencyDownloadUrls[target] };
+  }
+  if (!packageManagerPath)
+    return { command: null, args: [], manualUrl };
+  if (platform === "darwin")
+    return {
+      command: packageManagerPath,
+      args: ["install", target === "git" ? "git" : "node"],
+      manualUrl,
+    };
   const packageId = target === "git" ? "Git.Git" : "OpenJS.NodeJS.LTS";
   return {
-    command: wingetPath,
+    command: packageManagerPath,
     args: [
       "install",
       "--id",
@@ -170,7 +194,7 @@ function installPlan(target, wingetPath = "") {
       "--accept-source-agreements",
       "--silent",
     ],
-    manualUrl: dependencyDownloadUrls[target],
+    manualUrl,
   };
 }
 function id() { return randomUUID(); }

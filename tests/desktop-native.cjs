@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const assert = require("node:assert/strict");
+const { nativeClaudePath, electronPath } = require("./platform-paths.cjs");
 
 function gitBash() {
   return [
@@ -116,15 +117,7 @@ async function main() {
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 
-  const cli = path.join(
-    root,
-    "work",
-    "native-cli",
-    "node_modules",
-    "@anthropic-ai",
-    "claude-code-win32-x64",
-    "claude.exe",
-  );
+  const cli = nativeClaudePath(root);
   assert.ok(
     fs.existsSync(cli),
     "Run the native Claude Code test dependency install first",
@@ -150,7 +143,7 @@ async function main() {
   const packaged = process.env.CCB_PACKAGED_EXE;
   const electron = packaged
     ? path.resolve(packaged)
-    : path.join(root, "node_modules", "electron", "dist", "electron.exe");
+    : electronPath();
   const child = spawn(electron, packaged ? [] : [root], {
     cwd: root,
     env: launchEnv,

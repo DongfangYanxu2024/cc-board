@@ -1,6 +1,6 @@
 {
   "name": "cc-board",
-  "version": "0.3.5",
+  "version": "0.4.0",
   "description": "A local desktop bridge for native Claude Code",
   "author": "cc-board contributors",
   "license": "MIT",
@@ -13,8 +13,11 @@
     "test:desktop": "npm run build && node tests/desktop-smoke.cjs",
     "test:desktop-native": "npm run build && node tests/desktop-native.cjs",
     "test:native": "node tests/native-bridge.cjs",
-    "dist": "npm run build && electron-builder --win nsis --x64",
-    "pack": "npm run build && electron-builder --dir --win --x64"
+    "dist": "npm run dist:win",
+    "dist:win": "npm run build && electron-builder --win nsis --x64",
+    "dist:mac": "npm run build && electron-builder --mac dmg zip",
+    "pack": "npm run build && electron-builder --dir --win --x64",
+    "pack:mac": "npm run build && electron-builder --dir --mac"
   },
   "engines": {
     "node": ">=22"
@@ -46,6 +49,21 @@
       "target": "nsis",
       "executableName": "cc-board",
       "icon": "build/icon.ico"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.developer-tools",
+      "minimumSystemVersion": "13.0.0",
+      "darkModeSupport": true,
+      "identity": null,
+      "artifactName": "cc-board-${version}-mac-${arch}.${ext}"
+    },
+    "dmg": {
+      "title": "cc-board ${version}"
     },
     "nsis": {
       "oneClick": false,
