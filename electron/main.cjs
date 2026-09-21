@@ -1591,6 +1591,7 @@ async function runDesktopSmoke(index) {
         const button = text => [...document.querySelectorAll('button')].find(node => node.textContent.includes(text));
         button('技能商场')?.click();
         await until(() => Boolean(document.querySelector('input[aria-label="搜索 GitHub Skills"]')));
+        await until(() => document.body.innerText.includes('anthropics/skills'));
         const marketVisible = Boolean(document.querySelector('input[aria-label="搜索 GitHub Skills"]'));
         const officialVisible = document.body.innerText.includes('anthropics/skills');
         const installVisible = Boolean([...document.querySelectorAll('button')].find(node => node.textContent.includes('一键安装')));
