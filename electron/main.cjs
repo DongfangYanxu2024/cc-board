@@ -1581,8 +1581,16 @@ async function runDesktopSmoke(index) {
     if (process.env.CCB_SMOKE_SKILLS === "1") {
       skillsUi = await win.webContents.executeJavaScript(`(async () => {
         const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+        const until = async predicate => {
+          for (let attempt = 0; attempt < 40; attempt += 1) {
+            if (predicate()) return true;
+            await wait(100);
+          }
+          return false;
+        };
         const button = text => [...document.querySelectorAll('button')].find(node => node.textContent.includes(text));
-        button('技能商场')?.click(); await wait(120);
+        button('技能商场')?.click();
+        await until(() => Boolean(document.querySelector('input[aria-label="搜索 GitHub Skills"]')));
         const marketVisible = Boolean(document.querySelector('input[aria-label="搜索 GitHub Skills"]'));
         const officialVisible = document.body.innerText.includes('anthropics/skills');
         const installVisible = Boolean([...document.querySelectorAll('button')].find(node => node.textContent.includes('一键安装')));
@@ -1616,13 +1624,15 @@ async function runDesktopSmoke(index) {
           : null;
         const riskClickable = Boolean(riskCancel && (riskPointerTarget === riskCancel || riskCancel.contains(riskPointerTarget)));
         riskCancel?.click();
-        button('设置与环境')?.click(); await wait(120);
+        button('设置与环境')?.click();
+        await until(() => document.body.innerText.includes('首次使用检查'));
         const setupVisible = document.body.innerText.includes('首次使用检查');
         const nodeOptional = document.body.innerText.includes('安装版 cc-board 不依赖 Node.js');
         const ccSwitchOptional = document.body.innerText.includes('CC Switch（可选）');
         const workbenchWording = document.querySelector('.new-chat')?.title === '选择工作台并新建对话';
         const darkButton = [...document.querySelectorAll('.appearance-options button')].find(node => node.textContent.includes('黑色'));
-        darkButton?.click(); await wait(80);
+        darkButton?.click();
+        await until(() => document.documentElement.dataset.theme === 'dark' && darkButton?.getAttribute('aria-pressed') === 'true');
         const color = value => {
           const source = value.startsWith('color(') ? value.slice(value.indexOf(' ') + 1) : value;
           const channels = source.match(/[\\d.]+/g)?.map(Number) || [];
@@ -1636,7 +1646,8 @@ async function runDesktopSmoke(index) {
         };
         const darkSurface = getComputedStyle(document.querySelector('.settings-card')).backgroundColor;
         const darkTheme = document.documentElement.dataset.theme === 'dark' && darkButton?.getAttribute('aria-pressed') === 'true' && sameColor(darkSurface, [32, 38, 34]);
-        button('技能商场')?.click(); await wait(120);
+        button('技能商场')?.click();
+        await until(() => Boolean(document.querySelector('.skill-card')));
         const marketSurface = getComputedStyle(document.querySelector('.skills-section')).backgroundColor;
         const skillSurface = getComputedStyle(document.querySelector('.skill-card')).backgroundColor;
         const skillDarkTheme = sameColor(marketSurface, [32, 38, 34]) && sameColor(skillSurface, [36, 43, 38]);
