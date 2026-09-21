@@ -1623,12 +1623,23 @@ async function runDesktopSmoke(index) {
         const workbenchWording = document.querySelector('.new-chat')?.title === '选择工作台并新建对话';
         const darkButton = [...document.querySelectorAll('.appearance-options button')].find(node => node.textContent.includes('黑色'));
         darkButton?.click(); await wait(80);
+        const color = value => {
+          const source = value.startsWith('color(') ? value.slice(value.indexOf(' ') + 1) : value;
+          const channels = source.match(/[\\d.]+/g)?.map(Number) || [];
+          if (value.startsWith('color(') && channels.length >= 3)
+            return channels.slice(0, 3).map(channel => Math.round(channel * 255));
+          return channels.slice(0, 3).map(Math.round);
+        };
+        const sameColor = (value, expected) => {
+          const actual = color(value);
+          return actual.length === 3 && actual.every((channel, index) => Math.abs(channel - expected[index]) <= 1);
+        };
         const darkSurface = getComputedStyle(document.querySelector('.settings-card')).backgroundColor;
-        const darkTheme = document.documentElement.dataset.theme === 'dark' && darkButton?.getAttribute('aria-pressed') === 'true' && darkSurface === 'rgb(32, 38, 34)';
+        const darkTheme = document.documentElement.dataset.theme === 'dark' && darkButton?.getAttribute('aria-pressed') === 'true' && sameColor(darkSurface, [32, 38, 34]);
         button('技能商场')?.click(); await wait(120);
         const marketSurface = getComputedStyle(document.querySelector('.skills-section')).backgroundColor;
         const skillSurface = getComputedStyle(document.querySelector('.skill-card')).backgroundColor;
-        const skillDarkTheme = marketSurface === 'rgb(32, 38, 34)' && skillSurface === 'rgb(36, 43, 38)';
+        const skillDarkTheme = sameColor(marketSurface, [32, 38, 34]) && sameColor(skillSurface, [36, 43, 38]);
         return { marketVisible, officialVisible, installVisible, commandFilled, commandsIntegrated, modelClickable, riskVisible, riskClickable, setupVisible, nodeOptional, ccSwitchOptional, workbenchWording, darkTheme, darkSurface, skillDarkTheme, marketSurface, skillSurface };
       })()`);
       if (!skillsUi.marketVisible || !skillsUi.officialVisible)
@@ -1685,7 +1696,10 @@ async function runDesktopSmoke(index) {
           }
           await wait(80);
           const parse = value => {
-            const match = value.match(/[\\d.]+/g)?.map(Number) || [0, 0, 0, 1];
+            const source = value.startsWith('color(') ? value.slice(value.indexOf(' ') + 1) : value;
+            const match = source.match(/[\\d.]+/g)?.map(Number) || [0, 0, 0, 1];
+            if (value.startsWith('color('))
+              return [match[0] * 255, match[1] * 255, match[2] * 255, match[3] ?? 1];
             return [match[0], match[1], match[2], match[3] ?? 1];
           };
           const luminance = rgb => {
